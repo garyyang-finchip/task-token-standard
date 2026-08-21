@@ -1,0 +1,9 @@
+# build artifacts (e2e / foundry runs) — keep the worktree clean after verification
+node_modules/
+solc-out/
+out/
+cache/
+lib/
+__pycache__/
+*.pyc
+nohup.out
