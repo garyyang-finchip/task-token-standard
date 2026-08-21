@@ -1,0 +1,15 @@
+{
+  "name": "task-token-standard",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Reference toolchain for Task Token as a Reverse Asset — pinned so the local-chain lifecycle test is reproducible.",
+  "license": "CC0-1.0",
+  "scripts": {
+    "e2e": "bash scripts/local_e2e.sh"
+  },
+  "devDependencies": {
+    "ethers": "6.17.0",
+    "ganache": "7.9.2",
+    "solc": "0.8.24"
+  }
+}

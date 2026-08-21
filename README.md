@@ -115,8 +115,10 @@ bash scripts/local_e2e.sh
 - Deterministic toolchain closed end-to-end: three frozen vectors (`public-v1`,
   `update-v2-companion-only` with constant `tdHash`, `confidential-v1`) pack, verify,
   and fail correctly on tampered inputs (descriptor/chain mismatch, missing key)
-- Contracts compile clean under solc 0.8.24 (optimized, 20,919 bytes deployed — under
-  the EIP-170 limit); all four interface IDs compiler-verified
+- Contracts compile clean under solc 0.8.24 (optimized, zero warnings). `TaskToken`
+  deployed runtime code is 20,170 bytes — under the EIP-170 limit of 24,576
+  (creation bytecode 20,919); `TaskVault` 839, `JuryPanel` 2,812,
+  `HashlockVerifier` 1,665. All four interface IDs compiler-verified
 - Full v2 lifecycle proven on a local chain: **55/55 assertions PASS**
   (`scripts/local_e2e.sh`), covering the locked per-token vault (visible balance,
   drain attempts revert, direct-transfer gifts count as escrow), judged settlement
