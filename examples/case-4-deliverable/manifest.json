@@ -1,0 +1,10 @@
+{
+  "schemaVersion": "1.0",
+  "name": "cross-border-restructuring-tax-opinion-delivered",
+  "taskVersion": "1.0.0",
+  "summary": "Signed tax opinion FTA-2026-0842, answering engagement scope revision 2: transfer pricing, permanent establishment, and withholding on the Singapore-to-Vietnam relocation.",
+  "specPath": "spec/delivery-declaration.yaml",
+  "taskType": "delivered-artifact",
+  "tags": ["tax-opinion", "signed", "deliverable"],
+  "standard": "TASK-KERNEL v3.0"
+}

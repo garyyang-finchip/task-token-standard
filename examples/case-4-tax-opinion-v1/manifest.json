@@ -1,0 +1,10 @@
+{
+  "schemaVersion": "1.0",
+  "name": "cross-border-restructuring-tax-opinion",
+  "taskVersion": "1.0.0",
+  "summary": "A signed tax opinion on a Singapore-to-Vietnam relocation of a regional sales function. The engagement scope is confidential and committed as an encrypted object; the acceptance standard is public.",
+  "specPath": "spec/engagement-scope.yaml",
+  "taskType": "professional-opinion",
+  "tags": ["tax", "confidential", "erc20-priced", "exclusive"],
+  "standard": "TASK-KERNEL v3.0"
+}

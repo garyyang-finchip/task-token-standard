@@ -1,0 +1,22 @@
+# What is being delivered, and against which version of the question.
+schemaVersion: "1.0"
+profile: x-signed-opinion-package-v1
+
+opinion:
+  reference: FTA-2026-0842
+  document: OPINION.md
+  signed_by: A. Mercer, Chartered Tax Adviser
+  signature_date: 2026-08-23
+
+answers:
+  engagement_scope_version: 2
+  questions: [Q1, Q2, Q3]
+
+conformance:
+  checked_with: acceptance/opinion_check.py of the tender package
+  result: PASS
+  checks: 21
+
+status: |
+  This is a demonstration artifact. Every party, figure, and fact in OPINION.md is
+  fictional; the document is not tax advice and must not be relied on.

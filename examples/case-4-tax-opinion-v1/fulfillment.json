@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "1.0",
+  "mode": "exclusive",
+  "maxCompletions": 1,
+  "teaming": { "allowed": false },
+  "subcontracting": { "allowed": false },
+  "eligibility": { "profile": "x-shortlisted-under-nda-v1" },
+  "delivery": { "profile": "x-signed-opinion-package-v1" }
+}
