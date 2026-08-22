@@ -313,5 +313,31 @@ ok(await c.completionsOf(10) === 2n && await c.escrowBalanceOf(10) === P(3),
    "the queued claim is not lost: it lands in the next epoch");
 
 
+// ---- token 11: an external judge's timeout vs the kernel's -------------------
+// A K-of-N panel defaults to REJECT when quorum is not reached; the kernel defaults
+// to PAY when nobody rules. They disagree, and the earlier deadline decides. A panel
+// whose window is the shorter one keeps its authority; configured the other way it
+// would be decorative, so this asserts the ordering the specification requires.
+const jurors2 = [A(j1), A(j2), A(j3)];
+const panel2 = await new ethers.ContractFactory(JP.abi, JP.bin, deployer).deploy(jurors2, 2, 100n);
+await panel2.waitForDeployment();
+await (await c.mintTask(A(deployer), A(publisher), await panel2.getAddress(), TD, TH, "u",
+  { ...terms, maxCompletions: 1n, judgmentWindow: 400n })).wait();   // 400 > the panel's 100
+await (await c.connect(funder).fundTask(11, P(1), { value: P(1) })).wait();
+await (await c.connect(worker).submitFulfillment(11, sha("release"), "")).wait();
+await (await panel2.connect(j1).vote(cAddr, 11, 1, true)).wait();     // one vote, then silence
+await warp(120);                                                      // panel window gone, kernel's not
+await mustRevert(() => c.connect(worker).claimUnjudged.staticCall(11, 1),
+  "claiming by default while the kernel's window is still open");
+await (await panel2.connect(rando).finalizeTimeout(cAddr, 11, 1)).wait();
+ok((await c.submissionOf(11, 1)).status === 2n,
+   "the panel's default lands first because its window is the shorter one");
+await warp(400);
+await mustRevert(() => c.connect(worker).claimUnjudged.staticCall(11, 1),
+  "claiming a submission the panel had already rejected");
+ok(await c.pendingOf(11) === 0n && await c.escrowBalanceOf(11) === P(1),
+   "the rejection freed the slot and the reward, and no money moved");
+
+
 console.log(`\nSMOKE RESULT: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

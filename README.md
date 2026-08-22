@@ -151,7 +151,7 @@ submission age against mempool front-running. `TenderTerms` gains `judgmentWindo
   deployed runtime code is 23,022 bytes — under the EIP-170 limit of 24,576
   (creation bytecode 23,771); `TaskVault` 839, `JuryPanel` 2,812,
   `HashlockVerifier` 1,665. All four interface IDs compiler-verified
-- Full v3 lifecycle proven on a local chain: **79/79 assertions PASS**
+- Full v3 lifecycle proven on a local chain: **83/83 assertions PASS**
   (`scripts/local_e2e.sh`), covering the locked per-token vault (visible balance,
   drain attempts revert, direct-transfer gifts count as escrow), judged settlement
   paying from the vault, permissionless machine settlement via HashlockVerifier
@@ -192,6 +192,12 @@ examples/case-4-tax-opinion-v1/       the same tender at scope revision 1, so th
                                       on-chain version bump is reproducible
 examples/case-4-deliverable/          the delivered opinion itself, a real document
                                       that passes the public conformance check
+examples/case-5-benchmark-consortium/  a consortium-funded shared benchmark: several
+                                      funders, a K-of-N committee none of them
+                                      controls, a team paid through a split contract,
+                                      and an anonymous gift
+examples/teams/FixedSplitter.sol      a team as fulfiller of record: fixed shares in
+                                      basis points, pull payments
 examples/mocks/DemoUSD.sol            a points-style ERC-20 used to price the
                                       examples; not a stablecoin
 examples/verifiers/                   verifier contracts used by the examples;
