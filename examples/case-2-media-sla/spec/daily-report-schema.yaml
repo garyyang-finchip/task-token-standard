@@ -1,0 +1,48 @@
+# What one daily report must contain. Committed by hash in the TaskRoot: once the
+# tender is frozen the brand cannot enlarge the deliverable mid-campaign.
+schemaVersion: "1.0"
+profile: x-daily-media-report-v1
+
+period:
+  length_seconds: 120        # DEMONSTRATION COMPRESSION. Production value: 86400.
+  reports_per_period: 1
+  periods: 5
+
+report:
+  format: json
+  required:
+    period_index: integer
+    window_start: iso8601
+    window_end: iso8601
+    spend: { currency: USD, decimal: 2 }
+    impressions: integer
+    clicks: integer
+    conversions: integer
+    cpa: { currency: USD, decimal: 2 }
+    placements:
+      - network: string
+        campaign_id: string
+        creative_id: string
+        creative_url: string
+        policy_check: enum[pass, flagged, removed]
+  attachments:
+    creative_evidence: one screenshot per active creative, as served
+    platform_export: raw export from the ad network, unedited
+
+integrity:
+  bundle: |
+    The report JSON and all attachments are packed into one bundle. resultHash is the
+    SHA-256 of the deterministically encoded bundle, under the same encoding rules as
+    the TaskRoot, so the brand can confirm afterwards exactly which bytes it approved.
+  raw_export_required: |
+    A report whose figures cannot be reconciled against the attached platform export
+    is a rejectable report, whatever the figures say.
+
+anomaly_thresholds:
+  # not enforced on-chain; these are what the reviewer is looking for
+  ctr_jump_vs_trailing_mean: 3.0
+  conversion_rate_jump_vs_trailing_mean: 3.0
+  units: multiples of the trailing mean
+  note: |
+    A sudden order-of-magnitude improvement is treated as suspected invalid traffic
+    until reconciled, not as a win.

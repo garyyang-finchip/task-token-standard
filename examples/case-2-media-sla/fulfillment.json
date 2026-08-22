@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "1.0",
+  "mode": "replicated",
+  "maxCompletions": 5,
+  "teaming": { "allowed": false },
+  "subcontracting": { "allowed": true },
+  "eligibility": { "profile": "x-awarded-agency-v1" },
+  "delivery": { "profile": "x-report-bundle-hash-v1" }
+}

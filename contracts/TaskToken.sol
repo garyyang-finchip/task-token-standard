@@ -472,6 +472,16 @@ contract TaskToken is ITaskToken, ITaskTender, IOnchainTaskDocument {
         TenderTerms storage t = _terms[tokenId];
         uint64 deadline = s.submittedAt + t.judgmentWindow;
         require(block.timestamp > deadline, "TaskToken: judgment window still open");
+        // A default is still a settlement, so it is still paced. Skipping this would
+        // let a provider deliver a whole standing tender's worth of work at once and,
+        // on the judge's silence, drain the entire budget inside a single epoch —
+        // exactly the drain the cadence exists to prevent. The claim is not lost, only
+        // queued: it becomes available in the next epoch.
+        if (t.epochLength != 0) {
+            uint64 epoch = uint64(block.timestamp / t.epochLength);
+            require(_epochCompletions[tokenId][epoch] < t.maxCompletionsPerEpoch,
+                    "TaskToken: epoch exhausted");
+        }
         require(escrowBalanceOf(tokenId) >= t.rewardPerCompletion, "TaskToken: insolvent vault");
         emit FulfillmentClaimedUnjudged(tokenId, submissionId, s.fulfiller, deadline);
         _settleEffects(tokenId, submissionId, s, t);

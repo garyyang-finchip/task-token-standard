@@ -288,5 +288,30 @@ const evf = txf.logs.map(l => { try { return c.interface.parseLog(l); } catch { 
 ok(evf && evf.args[2] === P(1), "and only then is the funder refunded in full");
 
 
+// ---- token 10: a default is still a PACED settlement --------------------------
+// On a standing tender the provider may deliver several periods' work at once
+// (pacing bounds settlement, not submission). If the judge then goes silent, the
+// default claims must still come one per epoch, or a silent judge would drain the
+// whole budget at once — the very thing the cadence exists to prevent.
+await (await c.mintTask(A(deployer), A(publisher), A(judge), TD, TH, "u",
+  { ...terms, maxCompletions: 5n, epochLength: 86400n, maxCompletionsPerEpoch: 1n, judgmentWindow: 3600n })).wait();
+await (await c.connect(funder).fundTask(10, P(5), { value: P(5) })).wait();
+for (let i = 0; i < 5; i++) {
+  await (await c.connect(worker).submitFulfillment(10, sha("period-" + i), "")).wait();
+}
+ok(await c.pendingOf(10) === 5n, "five periods delivered at once, all five reserved");
+await warp(3601);                                   // the judge says nothing at all
+await (await c.connect(worker).claimUnjudged(10, 1)).wait();
+const ep = BigInt((await provider.getBlock("latest", true)).timestamp) / 86400n;
+ok(await c.completionsInEpochOf(10, ep) === 1n, "the first default settles and fills the epoch");
+await mustRevert(() => c.connect(worker).claimUnjudged.staticCall(10, 2),
+  "a second default in the same epoch — silence must not outrun the cadence");
+ok(await c.escrowBalanceOf(10) === P(4), "the budget is intact: 4 of 5 still escrowed");
+await warp(86400);
+await (await c.connect(worker).claimUnjudged(10, 2)).wait();
+ok(await c.completionsOf(10) === 2n && await c.escrowBalanceOf(10) === P(3),
+   "the queued claim is not lost: it lands in the next epoch");
+
+
 console.log(`\nSMOKE RESULT: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

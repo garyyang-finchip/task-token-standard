@@ -130,6 +130,11 @@ clock rather than cryptography:
   it ignores both cancellation and `settleBy`. On the machine path it is refused —
   there, code already ruled. Rejecting is still allowed, but it must be said out loud,
   on-chain, inside a window published before any work began.
+- **A default is still a paced settlement.** `claimUnjudged` respects the epoch
+  bound. On a standing tender delivery is not paced but settlement is, so without
+  this a provider could hand in every period's work at once and, on the judge's
+  silence, drain the whole budget inside one epoch. A blocked claim is queued to
+  the next epoch, not lost.
 - **And junk cannot squat a machine tender.** `releaseExpired` is the machine-path
   counterpart: past the same deadline, a submission that never produced a valid proof
   is released by anyone, freeing its slot and reward. Without it the reservation rule
@@ -143,10 +148,10 @@ submission age against mempool front-running. `TenderTerms` gains `judgmentWindo
   `update-v2-companion-only` with constant `tdHash`, `confidential-v1`) pack, verify,
   and fail correctly on tampered inputs (descriptor/chain mismatch, missing key)
 - Contracts compile clean under solc 0.8.24 (optimized, zero warnings). `TaskToken`
-  deployed runtime code is 22,836 bytes — under the EIP-170 limit of 24,576
-  (creation bytecode 23,585); `TaskVault` 839, `JuryPanel` 2,812,
+  deployed runtime code is 23,022 bytes — under the EIP-170 limit of 24,576
+  (creation bytecode 23,771); `TaskVault` 839, `JuryPanel` 2,812,
   `HashlockVerifier` 1,665. All four interface IDs compiler-verified
-- Full v3 lifecycle proven on a local chain: **74/74 assertions PASS**
+- Full v3 lifecycle proven on a local chain: **79/79 assertions PASS**
   (`scripts/local_e2e.sh`), covering the locked per-token vault (visible balance,
   drain attempts revert, direct-transfer gifts count as escrow), judged settlement
   paying from the vault, permissionless machine settlement via HashlockVerifier
@@ -157,7 +162,8 @@ submission age against mempool front-running. `TenderTerms` gains `judgmentWindo
   pool only, the gift-residual rule, and every free-look route: slot and reward
   reservation, sock-puppet slot starvation, refund and residual locks while work is
   Pending, the judgment deadline, its refusal on machine-settled tenders, and the
-  machine-path release that stops junk submissions freezing a vault
+  machine-path release that stops junk submissions freezing a vault, and the pacing
+  of default claims that stops a silent judge draining a standing tender at once
 
 ## Worked examples
 
@@ -166,7 +172,12 @@ on-chain anchors are re-derivable from this repository:
 
 ```
 examples/case-1-labeling-qa/          support-ticket intent labeling settled per batch
-                                      against gold-standard QA receipts
+                                      against gold-standard QA receipts (machine
+                                      judgment, replicated across three annotators)
+examples/case-2-media-sla/            a paid-media retainer: one daily report per
+                                      period, judged by a person, paced one
+                                      settlement per period, with a review deadline
+                                      that turns silence into payment
 examples/verifiers/                   verifier contracts used by the examples;
 BatchReceiptVerifier.sol              profile x-batch-receipt-merkle-minage-v1 —
                                       one secret per claim (Merkle root over
@@ -177,6 +188,11 @@ BatchReceiptVerifier.sol              profile x-batch-receipt-merkle-minage-v1 �
 Re-derive an example's anchors the same way as the frozen vectors:
 
 ```bash
+python3 tools/task-pack/pack.py examples/case-2-media-sla --out examples/case-2-media-sla/out \
+    --primary TASK.md --spec spec/daily-report-schema.yaml --spec-profile x-daily-media-report-v1 \
+    --acceptance acceptance/review-checklist.md --acceptance-profile x-human-review-checklist-v1 \
+    --max-completions 5
+
 python3 tools/task-pack/pack.py examples/case-1-labeling-qa --out examples/case-1-labeling-qa/out     --primary TASK.md --spec spec/labeling-schema.yaml --spec-profile x-support-intent-taxonomy-v1     --acceptance acceptance/gold-standard-qa.md --acceptance-profile x-batch-receipt-merkle-minage-v1     --max-completions 3
 ```
 

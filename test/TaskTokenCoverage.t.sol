@@ -270,6 +270,35 @@ contract TaskTokenCoverageTest is Test {
         t.claimUnjudged(id, sid);
     }
 
+    // ---------------- a default is still a paced settlement
+    function test_unjudged_claim_respects_epoch_pacing() public {
+        // a standing tender: five periods of budget, at most one settlement per period
+        uint256 id = t.mintTask(owner, publisher, judge, TD, TH, "u",
+            ITaskTender.TenderTerms(address(0), 1 ether, 5, 0, 0, 1 days, 1, 1 hours));
+        vm.prank(funder);
+        t.fundTask{value: 5 ether}(id, 5 ether);
+        // pacing bounds settlement, not submission: all five may be delivered at once
+        vm.startPrank(worker);
+        for (uint256 i = 0; i < 5; i++) t.submitFulfillment(id, sha256(abi.encodePacked("r", i)), "");
+        vm.stopPrank();
+        assertEq(t.pendingOf(id), 5);
+
+        // the judge goes silent for the whole window
+        vm.warp(block.timestamp + 1 hours + 1);
+        uint64 epoch = uint64(block.timestamp / 1 days);
+        t.claimUnjudged(id, 1);
+        assertEq(t.completionsInEpochOf(id, epoch), 1);
+        vm.expectRevert(); // a second default in the same epoch would drain the cadence
+        t.claimUnjudged(id, 2);
+        assertEq(t.escrowBalanceOf(id), 4 ether); // the budget is NOT drained
+
+        // the claim is queued, not lost
+        vm.warp(block.timestamp + 1 days);
+        t.claimUnjudged(id, 2);
+        assertEq(t.completionsOf(id), 2);
+        assertEq(t.escrowBalanceOf(id), 3 ether);
+    }
+
     // ---------------- machine tenders cannot be bricked by junk submissions
     function test_release_expired_frees_a_squatted_slot() public {
         uint256 id = t.mintTask(owner, publisher, address(hashlock), TD, TH, "u",

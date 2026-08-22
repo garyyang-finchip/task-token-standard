@@ -1,0 +1,10 @@
+{
+  "schemaVersion": "1.0",
+  "name": "paid-media-retainer-daily-settlement",
+  "taskVersion": "1.0.0",
+  "summary": "A five-period paid media campaign: one daily report per period, reviewed by the brand, settled from an escrowed budget one period at a time.",
+  "specPath": "spec/daily-report-schema.yaml",
+  "taskType": "service-retainer",
+  "tags": ["paid-media", "standing-tender", "judged", "epoch-paced"],
+  "standard": "TASK-KERNEL v3.0"
+}
