@@ -178,6 +178,12 @@ examples/case-2-media-sla/            a paid-media retainer: one daily report pe
                                       period, judged by a person, paced one
                                       settlement per period, with a review deadline
                                       that turns silence into payment
+examples/case-3-invoice-agent/         an exclusive FDE build: delivery and decision
+                                      deadlines, a rejected first revision, and a
+                                      deliverable committed by its own digest
+examples/case-3-deliverable-v1/       the rejected build (96.2%)
+examples/case-3-deliverable-v2/       the accepted build (98.7%); its package digest
+                                      is the resultHash settled on-chain
 examples/verifiers/                   verifier contracts used by the examples;
 BatchReceiptVerifier.sol              profile x-batch-receipt-merkle-minage-v1 â€”
                                       one secret per claim (Merkle root over
@@ -188,6 +194,15 @@ BatchReceiptVerifier.sol              profile x-batch-receipt-merkle-minage-v1 â
 Re-derive an example's anchors the same way as the frozen vectors:
 
 ```bash
+python3 tools/task-pack/pack.py examples/case-3-invoice-agent --out examples/case-3-invoice-agent/out \
+    --primary TASK.md --spec spec/agent-interface.yaml --spec-profile x-invoice-extraction-agent-v1 \
+    --acceptance acceptance/evaluation-protocol.md --acceptance-profile x-heldout-scored-eval-v1 \
+    --max-completions 1
+
+# the deliverables are packed the same way; their root digest is the settlement commitment
+python3 tools/task-pack/pack.py examples/case-3-deliverable-v2 --out examples/case-3-deliverable-v2/out \
+    --primary SKILL.md --spec spec/runtime.yaml --spec-profile x-invoice-extraction-agent-v1 --max-completions 1
+
 python3 tools/task-pack/pack.py examples/case-2-media-sla --out examples/case-2-media-sla/out \
     --primary TASK.md --spec spec/daily-report-schema.yaml --spec-profile x-daily-media-report-v1 \
     --acceptance acceptance/review-checklist.md --acceptance-profile x-human-review-checklist-v1 \

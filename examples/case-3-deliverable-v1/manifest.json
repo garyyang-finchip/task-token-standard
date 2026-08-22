@@ -1,0 +1,10 @@
+{
+  "schemaVersion": "1.0",
+  "name": "invoice-extraction-agent",
+  "taskVersion": "1.0.0",
+  "summary": "Build v1 of the carrier invoice extraction agent: 96.2% field accuracy on the development set.",
+  "specPath": "spec/runtime.yaml",
+  "taskType": "delivered-artifact",
+  "tags": ["deliverable", "agent", "revision-1"],
+  "standard": "TASK-KERNEL v3.0"
+}

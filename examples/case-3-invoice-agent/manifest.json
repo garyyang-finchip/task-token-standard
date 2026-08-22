@@ -1,0 +1,10 @@
+{
+  "schemaVersion": "1.0",
+  "name": "carrier-invoice-extraction-agent",
+  "taskVersion": "1.0.0",
+  "summary": "Build an agent that extracts a normalized invoice record from 40+ carrier formats at 98% field accuracy, delivered as a runnable hash-committed package the buyer owns.",
+  "specPath": "spec/agent-interface.yaml",
+  "taskType": "custom-build",
+  "tags": ["fde", "ai-engineering", "exclusive", "deadlines"],
+  "standard": "TASK-KERNEL v3.0"
+}

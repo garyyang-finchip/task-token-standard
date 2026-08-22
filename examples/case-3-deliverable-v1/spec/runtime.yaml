@@ -1,0 +1,16 @@
+schemaVersion: "1.0"
+profile: x-invoice-extraction-agent-v1
+entrypoint: extract
+determinism:
+  temperature: 0
+  retries: 0
+  clock_dependence: none
+model_endpoint:
+  configured_by: buyer
+  call_home: none
+harness:
+  command: python -m harness.score --set heldout
+  emits: per-field accuracy, invoice_total accuracy, determinism diff
+currency_handling:
+  document_level: true
+  per_line_override: false      # <- the v1 defect

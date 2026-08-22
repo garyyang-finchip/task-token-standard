@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "1.0",
+  "mode": "exclusive",
+  "maxCompletions": 1,
+  "teaming": { "allowed": true, "splitProfile": "x-erc1155-shares-v1" },
+  "subcontracting": { "allowed": true },
+  "eligibility": { "profile": "x-awarded-supplier-v1" },
+  "delivery": { "profile": "x-package-digest-v1" }
+}

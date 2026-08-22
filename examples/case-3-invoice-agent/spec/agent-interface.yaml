@@ -1,0 +1,60 @@
+# The interface the delivered agent must implement, and the fields it must produce.
+# Committed by hash in the TaskRoot: frozen before work starts, so the buyer cannot
+# enlarge the deliverable mid-build and the supplier cannot narrow it.
+schemaVersion: "1.0"
+profile: x-invoice-extraction-agent-v1
+
+entrypoint:
+  command: extract
+  input:
+    document: bytes            # the invoice as received: pdf, image, or xlsx
+    carrier_hint: string       # optional; the agent must work without it
+  output:
+    schema: InvoiceRecord
+  determinism: |
+    Identical input bytes and identical configuration MUST produce identical output.
+    Any sampling temperature, retry jitter, or wall-clock dependence is a defect.
+  isolation: |
+    No network call to a service controlled by the supplier. Model endpoints are
+    configured by the buyer and may be swapped without changing the package.
+
+InvoiceRecord:
+  carrier_id: string
+  invoice_number: string
+  invoice_date: date
+  currency: enum[CNY, USD, EUR]
+  invoice_total: decimal(2)
+  line_items:
+    - description: string
+      account_code: string     # must map to the buyer's chart of accounts
+      quantity: decimal(3)
+      unit_amount: decimal(2)
+      amount: decimal(2)
+      consignment_ref: string
+  flags:
+    - enum[reweigh, split_shipment, duplicate_suspect, surcharge_out_of_contract]
+
+scored_fields:
+  - invoice_number
+  - invoice_date
+  - currency
+  - invoice_total
+  - line_items[].account_code
+  - line_items[].amount
+
+hard_cases_present_in_the_held_out_set:
+  multi_currency_tax_split: |
+    Invoices where tax is stated in the carrier's currency and the total in ours.
+    This is where the vendors we tried failed.
+  reweigh: a corrected weight issued against an earlier consignment
+  split_shipment: one consignment billed across two invoices
+  duplicate_suspect: near-identical invoices differing only in invoice_number
+
+packaging:
+  form: |
+    A deterministic package: the agent code, its configuration, the evaluation
+    harness, and a manifest. Committed by the digest of its deterministically
+    encoded object graph, under the same encoding rules as this task package.
+  runnable_by_the_buyer: |
+    The buyer must be able to execute the harness on its own infrastructure and
+    reproduce the reported score without the supplier's involvement.
