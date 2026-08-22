@@ -17,7 +17,7 @@ interface IERC165Probe {
 }
 
 /// @title  TaskToken — reference implementation of Token-Bound Task Tenders
-///         (TASK-KERNEL v2.0). Self-contained minimal ERC-721 + all interfaces,
+///         (TASK-KERNEL v3.0). Self-contained minimal ERC-721 + all interfaces,
 ///         deploying one locked TaskVault per token.
 /// @notice Reference quality: favors clarity and 1:1 spec traceability over gas.
 contract TaskToken is ITaskToken, ITaskTender, IOnchainTaskDocument {
@@ -46,6 +46,10 @@ contract TaskToken is ITaskToken, ITaskTender, IOnchainTaskDocument {
     mapping(uint256 => mapping(uint64 => uint64)) private _epochCompletions;
     mapping(uint256 => uint256)      private _submissionCount;
     mapping(uint256 => mapping(uint256 => Submission)) private _submissions;
+    // v3.0 reservation: every Pending submission holds one completion slot and one
+    // reward. Reserved rewards are unrefundable and uncancellable — the demand side
+    // cannot take back money that delivered work is already waiting on.
+    mapping(uint256 => uint64)       private _pending;
     // refund accounting: attributed contributions, pro-rata reclaim over the
     // ATTRIBUTED pool only. Rewards consume unattributed gifts before attributed
     // funds; residual gifts + dust go to the token owner (reclaimResidual).
@@ -129,6 +133,11 @@ contract TaskToken is ITaskToken, ITaskTender, IOnchainTaskDocument {
             (terms.epochLength == 0) == (terms.maxCompletionsPerEpoch == 0),
             "TaskToken: epoch fields must be both zero or both set"
         );
+        // Judgment must have a deadline. Required even when the tender mints with a
+        // verifier in the judgment slot, because that slot is transferable: any
+        // machine-settled tender can become judged later, and a judged tender with
+        // no deadline is a tender with no obligation.
+        require(terms.judgmentWindow > 0, "TaskToken: zero judgmentWindow");
 
         tokenId = nextId++;
         _owner[tokenId] = to;
@@ -240,6 +249,19 @@ contract TaskToken is ITaskToken, ITaskTender, IOnchainTaskDocument {
         return asset == address(0) ? vault.balance : IERC20Minimal(asset).balanceOf(vault);
     }
 
+    /// Submissions awaiting judgment. Each one reserves a slot and a reward.
+    function pendingOf(uint256 tokenId) public view exists(tokenId) returns (uint64) {
+        return _pending[tokenId];
+    }
+
+    /// The spoken-for part of the escrow: what delivered work is already owed.
+    /// Clamped to the live balance so a nonstandard asset cannot underflow it.
+    function lockedEscrowOf(uint256 tokenId) public view exists(tokenId) returns (uint256) {
+        uint256 locked = uint256(_pending[tokenId]) * _terms[tokenId].rewardPerCompletion;
+        uint256 bal = escrowBalanceOf(tokenId);
+        return locked > bal ? bal : locked;
+    }
+
     function completionsOf(uint256 tokenId) external view exists(tokenId) returns (uint64) {
         return _completions[tokenId];
     }
@@ -308,13 +330,24 @@ contract TaskToken is ITaskToken, ITaskTender, IOnchainTaskDocument {
         require(resultHash != bytes32(0), "TaskToken: zero resultHash");
         TenderTerms storage t = _terms[tokenId];
         require(t.submitBy == 0 || block.timestamp <= t.submitBy, "TaskToken: past submitBy");
-        require(t.maxCompletions == 0 || _completions[tokenId] < t.maxCompletions,
+        // never accept work into a tender that can no longer settle it
+        require(t.settleBy == 0 || block.timestamp <= t.settleBy, "TaskToken: past settleBy");
+        // a slot is reserved from the moment work is delivered, not from acceptance:
+        // otherwise a judge could exhaust the bound with other completions and starve
+        // a submission it is sitting on.
+        require(t.maxCompletions == 0 ||
+                uint256(_completions[tokenId]) + _pending[tokenId] < t.maxCompletions,
                 "TaskToken: completions exhausted");
+        // and the reward is reserved with it: the vault must be able to pay every
+        // Pending submission at once before it may take on one more.
+        require(escrowBalanceOf(tokenId) >= (uint256(_pending[tokenId]) + 1) * t.rewardPerCompletion,
+                "TaskToken: insufficient escrow to reserve");
 
         submissionId = ++_submissionCount[tokenId];
         uint64 v = _binding[tokenId].version;
         _submissions[tokenId][submissionId] =
-            Submission(msg.sender, resultHash, v, SubmissionStatus.Pending);
+            Submission(msg.sender, resultHash, v, uint64(block.timestamp), SubmissionStatus.Pending);
+        _pending[tokenId] += 1;
         emit FulfillmentSubmitted(tokenId, submissionId, msg.sender, resultHash, resultURI, v);
     }
 
@@ -323,7 +356,9 @@ contract TaskToken is ITaskToken, ITaskTender, IOnchainTaskDocument {
     function _settleChecks(uint256 tokenId, uint256 submissionId)
         private view returns (Submission storage s, TenderTerms storage t)
     {
-        require(!_cancelled[tokenId], "TaskToken: cancelled");
+        // NOTE: cancellation is deliberately NOT checked here. Cancelling stops new
+        // work; it does not strip work already delivered. Submissions Pending at
+        // cancellation stay judgeable, settleable, and claimable.
         t = _terms[tokenId];
         require(t.settleBy == 0 || block.timestamp <= t.settleBy, "TaskToken: past settleBy");
         require(t.maxCompletions == 0 || _completions[tokenId] < t.maxCompletions,
@@ -346,6 +381,7 @@ contract TaskToken is ITaskToken, ITaskTender, IOnchainTaskDocument {
                             Submission storage s, TenderTerms storage t) private {
         s.status = SubmissionStatus.Accepted;
         _completions[tokenId] += 1;
+        _pending[tokenId] -= 1; // the reservation is consumed by the payout below
         if (t.epochLength != 0) {
             _epochCompletions[tokenId][uint64(block.timestamp / t.epochLength)] += 1;
         }
@@ -408,13 +444,37 @@ contract TaskToken is ITaskToken, ITaskTender, IOnchainTaskDocument {
     function rejectFulfillment(uint256 tokenId, uint256 submissionId)
         external exists(tokenId) onlyAcceptanceAuthority(tokenId)
     {
-        require(!_cancelled[tokenId], "TaskToken: cancelled");
+        // rejecting stays available after cancellation: a judge that walks away
+        // still has to say so, on the record, for work it has already received.
         require(submissionId >= 1 && submissionId <= _submissionCount[tokenId],
                 "TaskToken: nonexistent submission");
         Submission storage s = _submissions[tokenId][submissionId];
         require(s.status == SubmissionStatus.Pending, "TaskToken: not pending");
         s.status = SubmissionStatus.Rejected;
+        _pending[tokenId] -= 1; // releases the reserved slot and reward
         emit FulfillmentRejected(tokenId, submissionId);
+    }
+
+    /// Default judgment. On the JUDGED path only: once judgmentWindow seconds have
+    /// passed with no ruling, the fulfiller takes the reward that its submission
+    /// reserved. Permissionless, and immune to cancellation and to settleBy — the
+    /// two levers a demander could otherwise pull to keep both the work and the
+    /// money. Silence is now the most expensive thing a judge can do.
+    function claimUnjudged(uint256 tokenId, uint256 submissionId)
+        external exists(tokenId) nonReentrant
+    {
+        require(!_declaresVerifier(_acceptanceAuthority[tokenId]),
+                "TaskToken: machine-settled tender has no judge to default");
+        require(submissionId >= 1 && submissionId <= _submissionCount[tokenId],
+                "TaskToken: nonexistent submission");
+        Submission storage s = _submissions[tokenId][submissionId];
+        require(s.status == SubmissionStatus.Pending, "TaskToken: not pending");
+        TenderTerms storage t = _terms[tokenId];
+        uint64 deadline = s.submittedAt + t.judgmentWindow;
+        require(block.timestamp > deadline, "TaskToken: judgment window still open");
+        require(escrowBalanceOf(tokenId) >= t.rewardPerCompletion, "TaskToken: insolvent vault");
+        emit FulfillmentClaimedUnjudged(tokenId, submissionId, s.fulfiller, deadline);
+        _settleEffects(tokenId, submissionId, s, t);
     }
 
     /// Judgment is a separately transferable right; zero forbidden (mirror rule).
@@ -484,6 +544,10 @@ contract TaskToken is ITaskToken, ITaskTender, IOnchainTaskDocument {
             _cancelled[tokenId] || (t.settleBy != 0 && block.timestamp > t.settleBy),
             "TaskToken: tender still live"
         );
+        // Nothing leaves the vault while delivered work is still undecided. The wait
+        // is bounded: every Pending submission becomes claimable by its fulfiller at
+        // submittedAt + judgmentWindow, so funders can always be made whole eventually.
+        require(_pending[tokenId] == 0, "TaskToken: pending submissions outstanding");
     }
 
     // =============================================================== IOnchainTaskDocument

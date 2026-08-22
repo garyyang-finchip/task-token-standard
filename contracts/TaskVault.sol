@@ -5,7 +5,7 @@ interface IERC20Payout {
     function transfer(address to, uint256 amount) external returns (bool);
 }
 
-/// @title  TaskVault — per-token locked bounty vault (TASK-KERNEL v2.0).
+/// @title  TaskVault — per-token locked bounty vault (TASK-KERNEL v3.0).
 /// @notice One vault per task token, deployed at mint. The vault is the reverse
 ///         asset's credit foundation: its balance is directly visible to any
 ///         explorer, anyone can deposit (deposits count as escrow), and funds can

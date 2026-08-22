@@ -29,7 +29,7 @@ contract MockERC20 {
     }
 }
 
-/// One assertion cluster per MUST clause of the TASK-KERNEL v2.0 specification.
+/// One assertion cluster per MUST clause of the TASK-KERNEL v3.0 specification.
 contract TaskTokenTest is Test {
     TaskToken t;
     MockERC20 usd;
@@ -50,7 +50,7 @@ contract TaskTokenTest is Test {
     bytes32 RES = sha256("deliverable");
 
     function terms() internal pure returns (ITaskTender.TenderTerms memory) {
-        return ITaskTender.TenderTerms(address(0), 1 ether, 2, 0, 0, 0, 0);
+        return ITaskTender.TenderTerms(address(0), 1 ether, 2, 0, 0, 0, 0, 7 days);
     }
 
     function setUp() public {
@@ -116,14 +116,18 @@ contract TaskTokenTest is Test {
         // settleBy < submitBy (both nonzero) forbidden
         vm.expectRevert();
         t.mintTask(owner, publisher, judge, TD, TH, "u",
-                   ITaskTender.TenderTerms(address(0), 1 ether, 0, 100, 50, 0, 0));
+                   ITaskTender.TenderTerms(address(0), 1 ether, 0, 100, 50, 0, 0, 7 days));
+        // judgment must have a deadline
+        vm.expectRevert();
+        t.mintTask(owner, publisher, judge, TD, TH, "u",
+                   ITaskTender.TenderTerms(address(0), 1 ether, 0, 0, 0, 0, 0, 0));
         // epoch fields must be both zero or both set
         vm.expectRevert();
         t.mintTask(owner, publisher, judge, TD, TH, "u",
-                   ITaskTender.TenderTerms(address(0), 1 ether, 0, 0, 0, 1 days, 0));
+                   ITaskTender.TenderTerms(address(0), 1 ether, 0, 0, 0, 1 days, 0, 7 days));
         vm.expectRevert();
         t.mintTask(owner, publisher, judge, TD, TH, "u",
-                   ITaskTender.TenderTerms(address(0), 1 ether, 0, 0, 0, 0, 1));
+                   ITaskTender.TenderTerms(address(0), 1 ether, 0, 0, 0, 0, 1, 7 days));
     }
 
     // ---------------- nonexistent tokenId MUST revert on all views
@@ -253,13 +257,17 @@ contract TaskTokenTest is Test {
     // ---------------- judged settlement: atomic; authority-only; solvency-gated
     function test_accept_settlement() public {
         uint256 id = mintDefault();
+        // v3.0: solvency is enforced at DELIVERY, not at acceptance. Nobody is
+        // asked to work against a vault that could not pay them.
         vm.prank(worker);
-        uint256 sid = t.submitFulfillment(id, RES, "");
-        vm.prank(judge);
-        vm.expectRevert(); // insolvent vault
-        t.acceptFulfillment(id, sid);
+        vm.expectRevert(); // insufficient escrow to reserve
+        t.submitFulfillment(id, RES, "");
         vm.prank(funder);
         t.fundTask{value: 2 ether}(id, 2 ether);
+        vm.prank(worker);
+        uint256 sid = t.submitFulfillment(id, RES, "");
+        assertEq(t.pendingOf(id), 1);
+        assertEq(t.lockedEscrowOf(id), 1 ether); // the reward is now spoken for
         vm.prank(rando);
         vm.expectRevert(); // not acceptance authority
         t.acceptFulfillment(id, sid);
@@ -277,8 +285,11 @@ contract TaskTokenTest is Test {
     // ---------------- machine settlement: hashlock verifier, permissionless
     function test_machine_settlement_hashlock() public {
         bytes memory answer = "42";
+        // two slots and two rewards funded: a copied submission must be able to
+        // EXIST (so we can prove it cannot settle), which under v3.0 reservation
+        // means the tender has to have room and money for it.
         uint256 id = t.mintTask(owner, publisher, address(hashlock), TD, TH, "u",
-                                ITaskTender.TenderTerms(address(0), 1 ether, 1, 0, 0, 0, 0));
+                                ITaskTender.TenderTerms(address(0), 1 ether, 2, 0, 0, 0, 0, 7 days));
         vm.prank(rando);
         vm.expectRevert(); // only update authority commits the answer
         hashlock.commitAnswer(address(t), id, sha256(answer));
@@ -289,7 +300,7 @@ contract TaskTokenTest is Test {
         hashlock.commitAnswer(address(t), id, sha256("43"));
 
         vm.prank(funder);
-        t.fundTask{value: 1 ether}(id, 1 ether);
+        t.fundTask{value: 2 ether}(id, 2 ether);
         // fulfiller commits the answer BOUND TO THEIR ADDRESS, then self-settles
         bytes32 commitment = sha256(abi.encodePacked(answer, worker));
         vm.prank(worker);
@@ -315,6 +326,8 @@ contract TaskTokenTest is Test {
         // judged-path settle on a machine task with a non-verifier caller path:
         // settleFulfillment on a JUDGED task reverts (authority not a verifier)
         uint256 id2 = mintDefault();
+        vm.prank(funder);
+        t.fundTask{value: 1 ether}(id2, 1 ether);
         vm.prank(worker);
         uint256 s2 = t.submitFulfillment(id2, RES, "");
         vm.prank(worker);
@@ -325,7 +338,7 @@ contract TaskTokenTest is Test {
     // ---------------- epoch pacing: standing tender
     function test_epoch_pacing() public {
         uint256 id = t.mintTask(owner, publisher, judge, TD, TH, "u",
-                                ITaskTender.TenderTerms(address(0), 1 ether, 0, 0, 0, 1 days, 1));
+                                ITaskTender.TenderTerms(address(0), 1 ether, 0, 0, 0, 1 days, 1, 7 days));
         vm.prank(funder);
         t.fundTask{value: 10 ether}(id, 10 ether);
         vm.prank(worker);
@@ -385,7 +398,7 @@ contract TaskTokenTest is Test {
     // ---------------- ERC-20 tender: fund into vault, settle in the asset
     function test_fund_erc20() public {
         uint256 id = t.mintTask(owner, publisher, judge, TD, TH, "u",
-                                ITaskTender.TenderTerms(address(usd), 100e18, 1, 0, 0, 0, 0));
+                                ITaskTender.TenderTerms(address(usd), 100e18, 1, 0, 0, 0, 0, 7 days));
         usd.mint(funder, 500e18);
         vm.prank(funder);
         usd.approve(address(t), 500e18);
@@ -407,6 +420,8 @@ contract TaskTokenTest is Test {
     // ---------------- submission rules and version citation
     function test_submission_rules() public {
         uint256 id = mintDefault();
+        vm.prank(funder);
+        t.fundTask{value: 2 ether}(id, 2 ether); // two slots, two rewards reserved
         vm.prank(worker);
         vm.expectRevert(); // zero resultHash
         t.submitFulfillment(id, bytes32(0), "");
@@ -425,7 +440,7 @@ contract TaskTokenTest is Test {
 
     function test_submitBy_deadline() public {
         uint256 id = t.mintTask(owner, publisher, judge, TD, TH, "u",
-            ITaskTender.TenderTerms(address(0), 1 ether, 0, uint64(block.timestamp + 100), 0, 0, 0));
+            ITaskTender.TenderTerms(address(0), 1 ether, 0, uint64(block.timestamp + 100), 0, 0, 0, 7 days));
         vm.warp(block.timestamp + 101);
         vm.prank(worker);
         vm.expectRevert();
@@ -435,7 +450,7 @@ contract TaskTokenTest is Test {
     function test_settleBy_deadline() public {
         uint256 id = t.mintTask(owner, publisher, judge, TD, TH, "u",
             ITaskTender.TenderTerms(address(0), 1 ether, 0,
-                uint64(block.timestamp + 50), uint64(block.timestamp + 100), 0, 0));
+                uint64(block.timestamp + 50), uint64(block.timestamp + 100), 0, 0, 7 days));
         vm.prank(funder);
         t.fundTask{value: 2 ether}(id, 2 ether);
         vm.prank(worker);
@@ -474,16 +489,20 @@ contract TaskTokenTest is Test {
         uint256 s1 = t.submitFulfillment(id, RES, "");
         vm.prank(worker2);
         uint256 s2 = t.submitFulfillment(id, sha256("d2"), "");
+        // v3.0: the bound is consumed by DELIVERY, not by acceptance. Both slots are
+        // now reserved, so a third worker cannot be lured into unpayable work.
+        assertEq(t.pendingOf(id), 2);
         vm.prank(rando);
-        uint256 s3 = t.submitFulfillment(id, sha256("d3"), "");
+        vm.expectRevert();
+        t.submitFulfillment(id, sha256("d3"), "");
         vm.startPrank(judge);
         t.acceptFulfillment(id, s1);
         t.acceptFulfillment(id, s2);
-        vm.expectRevert();
-        t.acceptFulfillment(id, s3);
         vm.stopPrank();
+        assertEq(t.completionsOf(id), 2);
+        assertEq(t.pendingOf(id), 0);
         vm.prank(worker);
-        vm.expectRevert();
+        vm.expectRevert(); // completions exhausted
         t.submitFulfillment(id, sha256("late"), "");
     }
 

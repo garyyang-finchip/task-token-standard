@@ -1,7 +1,7 @@
 # Task Token as a Reverse Asset — Reference Implementation
 
 Reference implementation, deterministic toolchain, and test vectors for the ERC draft
-**"Token-Bound Task Tenders"** (TASK-KERNEL v2.0).
+**"Token-Bound Task Tenders"** (TASK-KERNEL v3.0).
 
 An ERC-721 extension that binds a token to a hash-verifiable task tender: the chain
 anchors *exactly which task specification, acceptance criteria, version, and publication
@@ -76,7 +76,7 @@ vectors-objects-bundle.tar.gz   insurance copy of all vectors/*/objects/
 ```
 
 Interface IDs (compiler-verified, solc 0.8.24):
-`ITaskToken = 0xcdaeb26d` · `ITaskTender = 0xf685fef0` · `ITaskVerifier = 0x9977db15` · `IOnchainTaskDocument = 0xeb078d05`
+`ITaskToken = 0xcdaeb26d` · `ITaskTender = 0xcb1ded5a` · `ITaskVerifier = 0x9977db15` · `IOnchainTaskDocument = 0xeb078d05`
 
 ## Quick start
 
@@ -110,16 +110,38 @@ bash scripts/local_e2e.sh
 
 ```
 
-## Status — Milestone M2 (2026-08-20, TASK-KERNEL v2.0)
+## Status — Milestone M3 (2026-08-22, TASK-KERNEL v3.0)
+
+**v3.0 closes the free-look asymmetry of the demand side.** A supply-side artifact is
+bought against a hash and can be checked after payment; a task fulfiller has to reveal
+the work *before* being paid, to the very party holding the money. v2.0 let that party
+read a delivery and then cancel, or stall, and reclaim the bounty — an attack we
+reproduced end to end before fixing it. Three rules remove it, using counting and a
+clock rather than cryptography:
+
+- **A delivery reserves a slot and a reward.** `submitFulfillment` reverts unless the
+  tender has an unreserved slot and the vault can cover every Pending reward at once.
+  `pendingOf` and `lockedEscrowOf` expose the reservation; refunds cannot touch it.
+- **Cancellation stops new work, not delivered work.** Submissions Pending at
+  cancellation stay acceptable, rejectable, settleable, and claimable; `reclaimEscrow`
+  and `reclaimResidual` revert while anything is still Pending.
+- **Silence pays the fulfiller.** `claimUnjudged` is permissionless: past
+  `submittedAt + judgmentWindow`, an unjudged delivery settles to its fulfiller, and
+  it ignores both cancellation and `settleBy`. On the machine path it is refused —
+  there, code already ruled. Rejecting is still allowed, but it must be said out loud,
+  on-chain, inside a window published before any work began.
+
+`Submission` gains `submittedAt`, so a verifier profile can also require a minimum
+submission age against mempool front-running. `TenderTerms` gains `judgmentWindow`.
 
 - Deterministic toolchain closed end-to-end: three frozen vectors (`public-v1`,
   `update-v2-companion-only` with constant `tdHash`, `confidential-v1`) pack, verify,
   and fail correctly on tampered inputs (descriptor/chain mismatch, missing key)
 - Contracts compile clean under solc 0.8.24 (optimized, zero warnings). `TaskToken`
-  deployed runtime code is 20,170 bytes — under the EIP-170 limit of 24,576
-  (creation bytecode 20,919); `TaskVault` 839, `JuryPanel` 2,812,
+  deployed runtime code is 22,101 bytes — under the EIP-170 limit of 24,576
+  (creation bytecode 22,850); `TaskVault` 839, `JuryPanel` 2,812,
   `HashlockVerifier` 1,665. All four interface IDs compiler-verified
-- Full v2 lifecycle proven on a local chain: **55/55 assertions PASS**
+- Full v3 lifecycle proven on a local chain: **68/68 assertions PASS**
   (`scripts/local_e2e.sh`), covering the locked per-token vault (visible balance,
   drain attempts revert, direct-transfer gifts count as escrow), judged settlement
   paying from the vault, permissionless machine settlement via HashlockVerifier
@@ -127,9 +149,9 @@ bash scripts/local_e2e.sh
   set-once answers), epoch pacing (1/day standing tender across a day boundary),
   JuryPanel 2-of-3 quorum settlement plus timeout-default rejection, terminal
   rejection, completion bounds, cancellation, pro-rata refunds over the attributed
-  pool only, and the gift-residual rule: rewards consume anonymous vault gifts
-  before funder money, funders reclaim only their attributed share, and the unspent
-  residual accrues to the token owner via reclaimResidual
+  pool only, the gift-residual rule, and every free-look route: slot and reward
+  reservation, sock-puppet slot starvation, refund and residual locks while work is
+  Pending, the judgment deadline, and its refusal on machine-settled tenders
 
 ## Reproducing the vectors
 

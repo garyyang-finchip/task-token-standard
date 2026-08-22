@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: CC0-1.0
 pragma solidity ^0.8.24;
 
-/// @title  Machine-settlement verifier interface (TASK-KERNEL v2.0) — own ERC-165 id.
+/// @title  Machine-settlement verifier interface (TASK-KERNEL v3.0) — own ERC-165 id.
 /// @notice Verifier contracts implement this (and declare it via ERC-165). A task
 ///         whose acceptance authority is such a contract is machine-settled: anyone
 ///         may call settleFulfillment on the task contract, which consults the

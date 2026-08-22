@@ -1,4 +1,4 @@
-// End-to-end lifecycle smoke test for TaskToken v2 (TASK-KERNEL v2.0) on a local chain.
+// End-to-end lifecycle smoke test for TaskToken v3 (TASK-KERNEL v3.0) on a local chain.
 // Covers: mint + genesis events -> per-token VAULT (visible, locked, gift deposits)
 // -> freeze -> pooled funding -> judged settlement (pays from vault) -> terminal
 // rejection -> maxCompletions bound -> machine settlement via HashlockVerifier
@@ -46,13 +46,14 @@ console.log("TaskToken:", cAddr, " HashlockVerifier:", hlAddr);
 
 // ERC-165 (compiler-verified ids)
 ok(await c.supportsInterface("0xcdaeb26d"), "ERC-165 ITaskToken 0xcdaeb26d");
-ok(await c.supportsInterface("0xf685fef0"), "ERC-165 ITaskTender 0xf685fef0");
+ok(await c.supportsInterface("0xcb1ded5a"), "ERC-165 ITaskTender 0xcb1ded5a");
 ok(await c.supportsInterface("0xeb078d05"), "ERC-165 IOnchainTaskDocument 0xeb078d05");
 ok(await hashlock.supportsInterface("0x9977db15"), "HashlockVerifier declares ITaskVerifier 0x9977db15");
 
 // terms: (asset, rewardPerCompletion, maxCompletions, submitBy, settleBy, epochLength, maxPerEpoch)
 const terms = { asset: ethers.ZeroAddress, rewardPerCompletion: ethers.parseEther("1"),
-                maxCompletions: 2n, submitBy: 0n, settleBy: 0n, epochLength: 0n, maxCompletionsPerEpoch: 0n };
+                maxCompletions: 2n, submitBy: 0n, settleBy: 0n, epochLength: 0n, maxCompletionsPerEpoch: 0n,
+                judgmentWindow: 604800n };
 
 // ---- token 1: judged lifecycle -------------------------------------------------
 const rc = await (await c.mintTask(A(deployer), A(publisher), A(judge), TD, TH, "ipfs://task-v1", terms)).wait();
@@ -116,9 +117,12 @@ await mustRevert(() => c.connect(worker).submitFulfillment.staticCall(1, sha("la
 // cancel + pro-rata reclaim over LIVE vault balance (2.5 remain; 3:1 contributions; gift shared)
 await mustRevert(() => c.connect(funder).reclaimEscrow.staticCall(1), "reclaim while live");
 await (await c.connect(publisher).cancelTask(1)).wait();
-const f1b = await provider.getBalance(A(funder));
 const tx1 = await (await c.connect(funder).reclaimEscrow(1)).wait();
-ok((await provider.getBalance(A(funder))) - f1b + tx1.gasUsed * tx1.gasPrice === ethers.parseEther("1.875"),
+// assert on the receipt's event, not a wallet balance delta: ethers caches
+// getBalance within a block and can silently collapse before/after to zero
+const rec1 = tx1.logs.map((l) => { try { return c.interface.parseLog(l); } catch { return null; } })
+                     .find((x) => x?.name === "EscrowReclaimed");
+ok(rec1.args[1] === A(funder) && rec1.args[2] === ethers.parseEther("1.875"),
    "funder reclaims 2.5 * 3/4 = 1.875 (gift shared pro rata)");
 const tx2 = await (await c.connect(funder2).reclaimEscrow(1)).wait();
 const ev2 = tx2.logs.map(l => { try { return c.interface.parseLog(l); } catch { return null; } })
@@ -130,14 +134,16 @@ ok((await c.taskOf(1)).taskHash === TH && (await c.taskOf(1)).version === 1n, "c
 
 // ---- token 2: MACHINE settlement (hashlock, permissionless) --------------------
 const answer = ethers.toUtf8Bytes("42");
+// two slots and two rewards: under v3.0 a Pending submission RESERVES both, so the
+// copied "thief" submission below has to be affordable in order to exist at all.
 await (await c.mintTask(A(deployer), A(publisher), hlAddr, TD, TH, "u",
-  { ...terms, maxCompletions: 1n })).wait();
+  { ...terms, maxCompletions: 2n })).wait();
 await mustRevert(() => hashlock.connect(rando).commitAnswer.staticCall(cAddr, 2, sha(answer)),
   "only update authority commits the answer");
 await (await hashlock.connect(publisher).commitAnswer(cAddr, 2, sha(answer))).wait();
 await mustRevert(() => hashlock.connect(publisher).commitAnswer.staticCall(cAddr, 2, sha("43")),
   "set-once answer (no moving goalposts)");
-await (await c.connect(funder).fundTask(2, ethers.parseEther("1"), { value: ethers.parseEther("1") })).wait();
+await (await c.connect(funder).fundTask(2, ethers.parseEther("2"), { value: ethers.parseEther("2") })).wait();
 // fulfiller commits answer BOUND TO THEIR ADDRESS
 const commitment = ethers.sha256(ethers.concat([answer, A(worker)]));
 await (await c.connect(worker).submitFulfillment(2, commitment, "")).wait();
@@ -151,8 +157,10 @@ await mustRevert(() => c.connect(rando).settleFulfillment.staticCall(2, 2, answe
 const stx = await (await c.connect(rando).settleFulfillment(2, 1, answer)).wait();
 const sev = stx.logs.map(l => { try { return c.interface.parseLog(l); } catch { return null; } })
   .find(e => e && e.name === "FulfillmentAccepted");
-ok(sev && sev.args[2] === A(worker) && sev.args[3] === ethers.parseEther("1") && (await c.escrowBalanceOf(2)) === 0n,
+ok(sev && sev.args[2] === A(worker) && sev.args[3] === ethers.parseEther("1"),
    "machine settlement: solve it and the vault pays, no one in the loop");
+ok((await c.escrowBalanceOf(2)) === ethers.parseEther("1") && (await c.lockedEscrowOf(2)) === ethers.parseEther("1"),
+   "the thief's still-Pending submission keeps the second reward locked, not stolen");
 
 // ---- token 3: EPOCH PACING (standing tender: 1/day) ----------------------------
 await (await c.mintTask(A(deployer), A(publisher), A(judge), TD, TH, "u",
@@ -214,6 +222,56 @@ const evo = txo.logs.map(l => { try { return c.interface.parseLog(l); } catch { 
 ok(evo && evo.args[1] === A(deployer) && evo.args[2] === ethers.parseEther("1"),
    "gift residual accrues to the token owner");
 ok(await c.escrowBalanceOf(6) === 0n, "vault 6 drained exactly");
+
+// ---- tokens 7-9: the v3.0 free-look guard --------------------------------------
+// A demander must not be able to read a delivery and then keep both the work and
+// the money. Every escape route is closed here.
+const P = (n) => ethers.parseEther(String(n));
+await (await c.mintTask(A(deployer), A(publisher), A(judge), TD, TH, "u",
+  { ...terms, maxCompletions: 1n, judgmentWindow: 3600n })).wait();
+await (await c.connect(funder).fundTask(7, P(1), { value: P(1) })).wait();
+await (await c.connect(worker).submitFulfillment(7, sha("consulting report"), "https://d.example/r.pdf")).wait();
+ok(await c.pendingOf(7) === 1n && await c.lockedEscrowOf(7) === P(1),
+   "a delivery reserves a slot AND locks its reward");
+await mustRevert(() => c.connect(rando).submitFulfillment.staticCall(7, sha("sock"), ""),
+  "a sock puppet taking the last slot from under a Pending delivery");
+await (await c.connect(publisher).cancelTask(7)).wait();      // read it, then walk away
+await mustRevert(() => c.connect(funder).reclaimEscrow.staticCall(7), "reclaim while a delivery is Pending");
+await mustRevert(() => c.connect(deployer).reclaimResidual.staticCall(7), "residual while a delivery is Pending");
+await mustRevert(() => c.connect(worker).claimUnjudged.staticCall(7, 1), "claiming before the judgment window ends");
+await warp(3601);
+const txu = await (await c.connect(rando).claimUnjudged(7, 1)).wait();   // permissionless
+const namesU = txu.logs.map(l => { try { return c.interface.parseLog(l)?.name; } catch { return null; } });
+ok(namesU.includes("FulfillmentClaimedUnjudged"), "a default is recorded distinctly from a ruling");
+const evu = txu.logs.map(l => { try { return c.interface.parseLog(l); } catch { return null; } })
+  .find(e => e && e.name === "FulfillmentAccepted");
+ok(evu && evu.args[2] === A(worker) && evu.args[3] === P(1),
+   "silence past the deadline pays the worker in full, even after cancellation");
+ok(await c.escrowBalanceOf(7) === 0n, "the demander recovered nothing by staying silent");
+
+// the same guard must not become a way to be paid for garbage on the machine path
+await (await c.mintTask(A(deployer), A(publisher), hlAddr, TD, TH, "u",
+  { ...terms, maxCompletions: 1n, judgmentWindow: 3600n })).wait();
+await (await c.connect(funder).fundTask(8, P(1), { value: P(1) })).wait();
+await (await c.connect(rando).submitFulfillment(8, sha("garbage"), "")).wait();
+await warp(7200);
+await mustRevert(() => c.connect(rando).claimUnjudged.staticCall(8, 1),
+  "waiting out the clock on a machine-settled tender (code judged, and said no)");
+
+// an explicit, on-the-record rejection is what releases a reservation
+await (await c.mintTask(A(deployer), A(publisher), A(judge), TD, TH, "u",
+  { ...terms, maxCompletions: 1n, judgmentWindow: 3600n })).wait();
+await (await c.connect(funder).fundTask(9, P(1), { value: P(1) })).wait();
+await (await c.connect(worker).submitFulfillment(9, sha("junk"), "")).wait();
+await (await c.connect(publisher).cancelTask(9)).wait();
+await mustRevert(() => c.connect(funder).reclaimEscrow.staticCall(9), "reclaim before the junk is ruled on");
+await (await c.connect(judge).rejectFulfillment(9, 1)).wait();
+ok(await c.pendingOf(9) === 0n, "an on-the-record rejection releases the reservation");
+const txf = await (await c.connect(funder).reclaimEscrow(9)).wait();
+const evf = txf.logs.map(l => { try { return c.interface.parseLog(l); } catch { return null; } })
+  .find(e => e && e.name === "EscrowReclaimed");
+ok(evf && evf.args[2] === P(1), "and only then is the funder refunded in full");
+
 
 console.log(`\nSMOKE RESULT: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
