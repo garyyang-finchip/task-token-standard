@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "1.0",
+  "mode": "collaborative",
+  "maxCompletions": 2,
+  "teaming": { "allowed": true, "splitProfile": "x-fixed-bps-splitter-v1" },
+  "subcontracting": { "allowed": true },
+  "eligibility": { "profile": "x-open-v1" },
+  "delivery": { "profile": "x-benchmark-release-package-v1" }
+}

@@ -1,0 +1,42 @@
+# What one benchmark release must contain. Committed by hash in the TaskRoot, so the
+# definition of "done" cannot move after the consortium has funded it.
+schemaVersion: "1.0"
+profile: x-financial-text-benchmark-v1
+
+release:
+  evaluation_set:
+    documents: 1200
+    document_classes: [annual_report, analyst_note]
+    languages: [zh-Hans]
+    split: evaluation only; no training split is published
+  labelling_standard:
+    form: a written standard sufficient for a new annotator to reproduce the labels
+    inter_annotator_agreement: reported, measured on a 10% double-labelled sample
+  reference_scorer:
+    form: runnable, dependency-pinned, deterministic
+    emits: per-field and aggregate scores, plus a machine-readable result file
+  baseline:
+    at_least_one: a published baseline scored with the reference scorer
+
+fields:
+  - issuer_name
+  - report_period
+  - revenue
+  - net_profit
+  - eps
+  - guidance_direction
+  - related_party_transaction_flag
+  - auditor_opinion_type
+
+neutrality_requirements:
+  no_vendor_advantage: |
+    No contributing firm's model, tooling, or internal taxonomy may be embedded in
+    the labelling standard or the scorer. A benchmark that favours one contributor
+    is worth nothing to the others and is a rejection.
+  reproducibility: |
+    Any third party must be able to re-score a submission from the published set and
+    scorer alone, and obtain identical numbers.
+
+licensing:
+  evaluation_set: published openly, attribution required
+  scorer: permissive, no field-of-use restriction

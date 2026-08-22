@@ -1,0 +1,10 @@
+{
+  "schemaVersion": "1.0",
+  "name": "chinese-financial-text-benchmark",
+  "taskVersion": "1.0.0",
+  "summary": "A shared evaluation benchmark for Chinese financial text extraction: consortium-funded, judged by a K-of-N committee no funder controls, delivered by a cross-institution team paid through a split contract.",
+  "specPath": "spec/benchmark-release.yaml",
+  "taskType": "shared-infrastructure",
+  "tags": ["benchmark", "consortium", "k-of-n", "team-split"],
+  "standard": "TASK-KERNEL v3.0"
+}
