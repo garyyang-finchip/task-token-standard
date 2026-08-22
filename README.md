@@ -184,6 +184,16 @@ examples/case-3-invoice-agent/         an exclusive FDE build: delivery and deci
 examples/case-3-deliverable-v1/       the rejected build (96.2%)
 examples/case-3-deliverable-v2/       the accepted build (98.7%); its package digest
                                       is the resultHash settled on-chain
+examples/case-4-tax-opinion/          a confidential professional engagement: the
+                                      scope is an encrypted object, the acceptance
+                                      standard and its conformance check are public,
+                                      and the fee is priced in a stable unit
+examples/case-4-tax-opinion-v1/       the same tender at scope revision 1, so the
+                                      on-chain version bump is reproducible
+examples/case-4-deliverable/          the delivered opinion itself, a real document
+                                      that passes the public conformance check
+examples/mocks/DemoUSD.sol            a points-style ERC-20 used to price the
+                                      examples; not a stablecoin
 examples/verifiers/                   verifier contracts used by the examples;
 BatchReceiptVerifier.sol              profile x-batch-receipt-merkle-minage-v1 —
                                       one secret per claim (Merkle root over
