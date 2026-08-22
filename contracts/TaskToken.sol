@@ -477,6 +477,29 @@ contract TaskToken is ITaskToken, ITaskTender, IOnchainTaskDocument {
         _settleEffects(tokenId, submissionId, s, t);
     }
 
+    /// Machine-path counterpart to claimUnjudged. A submission whose proof never
+    /// verified would otherwise squat its reservation forever: there is no judge to
+    /// reject it, and the default claim is refused on this path. Without a release,
+    /// anyone could brick a machine-settled tender by filling every slot with junk
+    /// and freezing the vault permanently. After the same window, anyone may release
+    /// it; a solver who was merely slow simply submits again.
+    function releaseExpired(uint256 tokenId, uint256 submissionId)
+        external exists(tokenId)
+    {
+        require(_declaresVerifier(_acceptanceAuthority[tokenId]),
+                "TaskToken: judged tender has a judge; release is machine-path only");
+        require(submissionId >= 1 && submissionId <= _submissionCount[tokenId],
+                "TaskToken: nonexistent submission");
+        Submission storage s = _submissions[tokenId][submissionId];
+        require(s.status == SubmissionStatus.Pending, "TaskToken: not pending");
+        uint64 deadline = s.submittedAt + _terms[tokenId].judgmentWindow;
+        require(block.timestamp > deadline, "TaskToken: judgment window still open");
+        s.status = SubmissionStatus.Rejected;
+        _pending[tokenId] -= 1;
+        emit SubmissionReleased(tokenId, submissionId, deadline);
+        emit FulfillmentRejected(tokenId, submissionId);
+    }
+
     /// Judgment is a separately transferable right; zero forbidden (mirror rule).
     function setAcceptanceAuthority(uint256 tokenId, address newAuthority)
         external exists(tokenId) onlyAcceptanceAuthority(tokenId)

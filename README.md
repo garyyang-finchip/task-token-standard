@@ -76,7 +76,7 @@ vectors-objects-bundle.tar.gz   insurance copy of all vectors/*/objects/
 ```
 
 Interface IDs (compiler-verified, solc 0.8.24):
-`ITaskToken = 0xcdaeb26d` · `ITaskTender = 0xcb1ded5a` · `ITaskVerifier = 0x9977db15` · `IOnchainTaskDocument = 0xeb078d05`
+`ITaskToken = 0xcdaeb26d` · `ITaskTender = 0xfced0e08` · `ITaskVerifier = 0x9977db15` · `IOnchainTaskDocument = 0xeb078d05`
 
 ## Quick start
 
@@ -130,6 +130,11 @@ clock rather than cryptography:
   it ignores both cancellation and `settleBy`. On the machine path it is refused —
   there, code already ruled. Rejecting is still allowed, but it must be said out loud,
   on-chain, inside a window published before any work began.
+- **And junk cannot squat a machine tender.** `releaseExpired` is the machine-path
+  counterpart: past the same deadline, a submission that never produced a valid proof
+  is released by anyone, freeing its slot and reward. Without it the reservation rule
+  would be a weapon — with no judge to reject junk, filling every slot would freeze
+  the vault forever.
 
 `Submission` gains `submittedAt`, so a verifier profile can also require a minimum
 submission age against mempool front-running. `TenderTerms` gains `judgmentWindow`.
@@ -138,10 +143,10 @@ submission age against mempool front-running. `TenderTerms` gains `judgmentWindo
   `update-v2-companion-only` with constant `tdHash`, `confidential-v1`) pack, verify,
   and fail correctly on tampered inputs (descriptor/chain mismatch, missing key)
 - Contracts compile clean under solc 0.8.24 (optimized, zero warnings). `TaskToken`
-  deployed runtime code is 22,101 bytes — under the EIP-170 limit of 24,576
-  (creation bytecode 22,850); `TaskVault` 839, `JuryPanel` 2,812,
+  deployed runtime code is 22,836 bytes — under the EIP-170 limit of 24,576
+  (creation bytecode 23,585); `TaskVault` 839, `JuryPanel` 2,812,
   `HashlockVerifier` 1,665. All four interface IDs compiler-verified
-- Full v3 lifecycle proven on a local chain: **68/68 assertions PASS**
+- Full v3 lifecycle proven on a local chain: **74/74 assertions PASS**
   (`scripts/local_e2e.sh`), covering the locked per-token vault (visible balance,
   drain attempts revert, direct-transfer gifts count as escrow), judged settlement
   paying from the vault, permissionless machine settlement via HashlockVerifier
@@ -151,7 +156,29 @@ submission age against mempool front-running. `TenderTerms` gains `judgmentWindo
   rejection, completion bounds, cancellation, pro-rata refunds over the attributed
   pool only, the gift-residual rule, and every free-look route: slot and reward
   reservation, sock-puppet slot starvation, refund and residual locks while work is
-  Pending, the judgment deadline, and its refusal on machine-settled tenders
+  Pending, the judgment deadline, its refusal on machine-settled tenders, and the
+  machine-path release that stops junk submissions freezing a vault
+
+## Worked examples
+
+`examples/` carries end-to-end commercial cases, each a real task package whose
+on-chain anchors are re-derivable from this repository:
+
+```
+examples/case-1-labeling-qa/          support-ticket intent labeling settled per batch
+                                      against gold-standard QA receipts
+examples/verifiers/                   verifier contracts used by the examples;
+BatchReceiptVerifier.sol              profile x-batch-receipt-merkle-minage-v1 —
+                                      one secret per claim (Merkle root over
+                                      sha256(receipt || assigned fulfiller)) plus a
+                                      minimum submission age read from `submittedAt`
+```
+
+Re-derive an example's anchors the same way as the frozen vectors:
+
+```bash
+python3 tools/task-pack/pack.py examples/case-1-labeling-qa --out examples/case-1-labeling-qa/out     --primary TASK.md --spec spec/labeling-schema.yaml --spec-profile x-support-intent-taxonomy-v1     --acceptance acceptance/gold-standard-qa.md --acceptance-profile x-batch-receipt-merkle-minage-v1     --max-completions 3
+```
 
 ## Reproducing the vectors
 

@@ -49,6 +49,11 @@ interface ITaskTender {
     event FulfillmentAccepted(uint256 indexed tokenId, uint256 indexed submissionId,
                               address indexed fulfiller, uint256 reward);
     event FulfillmentRejected(uint256 indexed tokenId, uint256 indexed submissionId);
+    /// @notice Emitted before `FulfillmentRejected` when a machine-path submission is
+    ///         released for never having produced a valid proof, so that an observer
+    ///         can tell an expiry from a judge's ruling.
+    event SubmissionReleased(uint256 indexed tokenId, uint256 indexed submissionId,
+                             uint64 deadline);
     /// @notice Emitted immediately before `FulfillmentAccepted` when the acceptance
     ///         came from the judgment deadline rather than from a judge, so that an
     ///         observer can tell a ruling from a default.
@@ -103,6 +108,12 @@ interface ITaskTender {
     ///         walking away nor waiting out the clock may strip work already
     ///         delivered. This is what makes a judge's silence cost money.
     function claimUnjudged(uint256 tokenId, uint256 submissionId) external;
+
+    /// @notice Machine path only: release a submission that never produced a valid
+    ///         proof, once `judgmentWindow` has passed, freeing its reserved slot and
+    ///         reward. Permissionless. Without it, junk submissions would freeze a
+    ///         machine-settled tender forever, since no judge exists to reject them.
+    function releaseExpired(uint256 tokenId, uint256 submissionId) external;
 
     /// @notice Transfer the judgment right. Zero address forbidden.
     function setAcceptanceAuthority(uint256 tokenId, address newAuthority) external;

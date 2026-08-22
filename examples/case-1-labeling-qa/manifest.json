@@ -1,0 +1,10 @@
+{
+  "schemaVersion": "1.0",
+  "name": "support-ticket-intent-labeling-0417-0419",
+  "taskVersion": "1.0.0",
+  "summary": "Label three 500-ticket batches against a published intent taxonomy; each batch settles on-chain against its own gold-standard QA receipt.",
+  "specPath": "spec/labeling-schema.yaml",
+  "taskType": "data-labeling",
+  "tags": ["annotation", "gold-standard-qa", "machine-settled", "replicated"],
+  "standard": "TASK-KERNEL v3.0"
+}

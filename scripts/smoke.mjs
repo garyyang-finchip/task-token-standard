@@ -46,7 +46,7 @@ console.log("TaskToken:", cAddr, " HashlockVerifier:", hlAddr);
 
 // ERC-165 (compiler-verified ids)
 ok(await c.supportsInterface("0xcdaeb26d"), "ERC-165 ITaskToken 0xcdaeb26d");
-ok(await c.supportsInterface("0xcb1ded5a"), "ERC-165 ITaskTender 0xcb1ded5a");
+ok(await c.supportsInterface("0xfced0e08"), "ERC-165 ITaskTender 0xfced0e08");
 ok(await c.supportsInterface("0xeb078d05"), "ERC-165 IOnchainTaskDocument 0xeb078d05");
 ok(await hashlock.supportsInterface("0x9977db15"), "HashlockVerifier declares ITaskVerifier 0x9977db15");
 
@@ -257,6 +257,21 @@ await (await c.connect(rando).submitFulfillment(8, sha("garbage"), "")).wait();
 await warp(7200);
 await mustRevert(() => c.connect(rando).claimUnjudged.staticCall(8, 1),
   "waiting out the clock on a machine-settled tender (code judged, and said no)");
+// ...but junk must not be able to squat the slot forever either: with no judge to
+// reject it, releaseExpired is what stops a machine tender being bricked
+ok(await c.pendingOf(8) === 1n && await c.lockedEscrowOf(8) === P(1),
+   "the junk submission is holding a machine tender's only slot and its whole vault");
+await mustRevert(() => c.connect(judge).releaseExpired.staticCall(7, 1), "releaseExpired on a JUDGED tender");
+const txrel = await (await c.connect(worker).releaseExpired(8, 1)).wait();   // permissionless
+const namesR = txrel.logs.map(l => { try { return c.interface.parseLog(l)?.name; } catch { return null; } });
+ok(namesR.includes("SubmissionReleased") && namesR.includes("FulfillmentRejected"),
+   "an expiry is recorded distinctly from a judge's ruling");
+ok(await c.pendingOf(8) === 0n && await c.lockedEscrowOf(8) === 0n,
+   "the slot and the reward are freed, and the tender lives again");
+await (await c.connect(worker).submitFulfillment(8, sha("second attempt"), "")).wait();
+ok(await c.pendingOf(8) === 1n, "a genuine solver can take the freed slot");
+await (await c.connect(worker).releaseExpired.staticCall(8, 2).then(() => { throw 0; }, () => {}));
+ok(true, "and cannot be released before its own window elapses");
 
 // an explicit, on-the-record rejection is what releases a reservation
 await (await c.mintTask(A(deployer), A(publisher), A(judge), TD, TH, "u",

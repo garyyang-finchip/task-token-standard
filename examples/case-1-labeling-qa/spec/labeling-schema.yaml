@@ -1,0 +1,64 @@
+# Intent taxonomy and delivery format. Committed by hash in the TaskRoot: once the
+# tender is frozen, neither the label set nor the pass bar can move under the work.
+schemaVersion: "1.0"
+profile: x-support-intent-taxonomy-v1
+
+taxonomy:
+  version: "2.3"
+  labels:
+    - billing.refund_request
+    - billing.invoice_query
+    - billing.payment_failed
+    - account.login_issue
+    - account.password_reset
+    - account.plan_change
+    - technical.bug_report
+    - technical.integration_help
+    - technical.performance
+    - shipping.status_query
+    - shipping.address_change
+    - shipping.damaged_item
+    - other.feedback
+    - other.unclassifiable
+  rules:
+    multi_label: false
+    unclassifiable_threshold: |
+      Use other.unclassifiable only when no label applies after reading the full
+      thread. Over-use of this label is itself a QA failure mode: gold items are
+      seeded across it too.
+
+batch:
+  size: 500
+  batches: [ "0417", "0418", "0419" ]
+  assignment: one batch per annotator, fixed before the tender is frozen
+
+delivery:
+  format: jsonl
+  one_record_per_line:
+    ticket_id: string
+    label: enum(taxonomy.labels)
+    confidence: float[0,1]
+    notes: string(optional)
+  transport: upload to the QA endpoint below; the file itself is never published
+
+qa_endpoint:
+  method: POST
+  path: /v1/batches/{batchId}/submit
+  auth: bearer (issued with the batch assignment)
+  request: { file: jsonl }
+  response:
+    gold_total: integer          # 20
+    gold_matched: integer
+    passed: boolean              # gold_matched >= 19
+    receipt: string              # returned ONLY when passed is true; unique per batch
+
+settlement:
+  verifier_profile: x-batch-receipt-merkle-minage-v1
+  result_hash: sha256(receipt_bytes || fulfiller_address_bytes20)
+  proof: abi.encode(bytes receipt, bytes32[] merkleBranch)
+  commitment: |
+    A Merkle root over sha256(receipt_i || assigned_annotator_i) for the three
+    batches, published to the verifier contract before the tender was frozen.
+  min_age_seconds: |
+    Declared on the verifier at commitment time. Settlement is refused until the
+    submission has existed at least this long.

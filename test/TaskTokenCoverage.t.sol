@@ -270,6 +270,48 @@ contract TaskTokenCoverageTest is Test {
         t.claimUnjudged(id, sid);
     }
 
+    // ---------------- machine tenders cannot be bricked by junk submissions
+    function test_release_expired_frees_a_squatted_slot() public {
+        uint256 id = t.mintTask(owner, publisher, address(hashlock), TD, TH, "u",
+                                ITaskTender.TenderTerms(address(0), 1 ether, 1, 0, 0, 0, 0, 7 days));
+        vm.prank(funder);
+        t.fundTask{value: 1 ether}(id, 1 ether);
+        vm.prank(rando);
+        uint256 sid = t.submitFulfillment(id, sha256("junk"), "");
+        // with no judge to reject it, this one submission holds the only slot and the
+        // whole vault: without a release it would freeze the tender forever
+        assertEq(t.pendingOf(id), 1);
+        assertEq(t.lockedEscrowOf(id), 1 ether);
+        vm.expectRevert(); // the window has not elapsed
+        t.releaseExpired(id, sid);
+
+        vm.warp(block.timestamp + 7 days + 1);
+        vm.expectEmit(true, true, true, false);
+        emit ITaskTender.SubmissionReleased(id, sid, 0);
+        t.releaseExpired(id, sid); // permissionless
+        assertEq(uint8(t.submissionOf(id, sid).status),
+                 uint8(ITaskTender.SubmissionStatus.Rejected));
+        assertEq(t.pendingOf(id), 0);
+        assertEq(t.lockedEscrowOf(id), 0);
+        // the tender lives again for a genuine solver
+        vm.prank(worker);
+        t.submitFulfillment(id, sha256("real attempt"), "");
+        assertEq(t.pendingOf(id), 1);
+    }
+
+    function test_release_expired_is_machine_path_only() public {
+        uint256 id = mintDefault(); // judged
+        vm.prank(funder);
+        t.fundTask{value: 1 ether}(id, 1 ether);
+        vm.prank(worker);
+        uint256 sid = t.submitFulfillment(id, RES, "");
+        vm.warp(block.timestamp + 30 days);
+        vm.expectRevert(); // a judged tender has a judge; silence pays the worker instead
+        t.releaseExpired(id, sid);
+        t.claimUnjudged(id, sid); // the correct remedy on this path
+        assertEq(t.completionsOf(id), 1);
+    }
+
     // ---------------- the default belongs to the judged path only
     function test_unjudged_claim_blocked_on_machine_path() public {
         uint256 id = t.mintTask(owner, publisher, address(hashlock), TD, TH, "u", terms());

@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "1.0",
+  "mode": "replicated",
+  "maxCompletions": 3,
+  "teaming": { "allowed": false },
+  "subcontracting": { "allowed": false },
+  "eligibility": { "profile": "x-assigned-batch-v1" },
+  "delivery": { "profile": "x-qa-endpoint-receipt-v1" }
+}
