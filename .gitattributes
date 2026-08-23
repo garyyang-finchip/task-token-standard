@@ -1,0 +1,9 @@
+# The frozen vectors and their object stores are content-addressed: a single byte of
+# line-ending translation changes their hashes and breaks verification. A Windows
+# clone with core.autocrlf=true would silently rewrite them, so pin everything to LF
+# and mark the binary artefacts as binary.
+* text=auto eol=lf
+
+*.cbor            binary
+*.tar.gz          binary
+vectors/**/objects/**  binary
