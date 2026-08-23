@@ -33,7 +33,9 @@ repository with `tools/task-pack/pack.py`.
 | `FixedSplitter` | `0x075ce02B1d2d4bD1bF47d4B936f468f983E5A771` | a team as fulfiller of record, shares 50/30/20 |
 | `DemoUSD` | `0xB45BbB7439CC5157C6a2E440D4D5B84d84b4bf99` | points-style ERC-20 used to price case 4; **not a stablecoin** |
 
-ERC-165 interface identifiers, compiler-verified and reported on-chain:
+ERC-165 interface identifiers as reported by **this** deployment. `ITaskTender` has
+since changed to `0xc319d532` in `contracts/`, because the audit fixes added the
+payout-credit surface; the value below is the historical fact, not the current one:
 `ITaskToken = 0xcdaeb26d` · `ITaskTender = 0xfced0e08` ·
 `ITaskVerifier = 0x9977db15` · `IOnchainTaskDocument = 0xeb078d05`
 
