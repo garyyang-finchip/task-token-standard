@@ -171,6 +171,8 @@ submission age against mempool front-running. `TenderTerms` gains `judgmentWindo
 on-chain anchors are re-derivable from this repository:
 
 ```
+examples/DEPLOYMENTS.md              the Sepolia reference deployment: one contract,
+                                      seven tokens, one row per worked example
 examples/case-1-labeling-qa/          support-ticket intent labeling settled per batch
                                       against gold-standard QA receipts (machine
                                       judgment, replicated across three annotators)
