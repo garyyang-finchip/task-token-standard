@@ -34,6 +34,15 @@ contract ObservingFulfiller {
     }
 }
 
+/// A contract fulfiller that refuses payment: a multisig with a guard, a splitter with
+/// a bug, a proxy whose implementation was swapped. Settlement must survive it.
+contract RevertingFulfiller {
+    function submit(address t, uint256 id, bytes32 rh) external returns (uint256) {
+        return ITaskTender(t).submitFulfillment(id, rh, "");
+    }
+    receive() external payable { revert("nope"); }
+}
+
 /// A deflationary ("fee-on-transfer") ERC-20: the recipient receives less than
 /// `amount`, so vault credit MUST be measured by the balance difference.
 contract FeeERC20 {
@@ -342,6 +351,81 @@ contract TaskTokenCoverageTest is Test {
         uint256 b = worker.balance;
         t.claimUnjudged(id, sid);   // the deadline follows the delivery, not the slot
         assertEq(worker.balance - b, 1 ether);
+    }
+
+    // ---------------- a fulfiller that will not take the money must not wedge the tender
+    function test_undeliverable_payout_is_credited_not_reverted() public {
+        RevertingFulfiller rf = new RevertingFulfiller();
+        uint256 id = mintDefault();
+        vm.prank(funder);
+        t.fundTask{value: 2 ether}(id, 2 ether);
+        uint256 sid = rf.submit(address(t), id, RES);
+
+        vm.expectEmit(true, true, true, true);
+        emit ITaskTender.PayoutCredited(id, sid, address(rf), 1 ether);
+        vm.prank(judge);
+        t.acceptFulfillment(id, sid);
+
+        assertEq(uint8(t.submissionOf(id, sid).status),
+                 uint8(ITaskTender.SubmissionStatus.Accepted));
+        assertEq(t.pendingOf(id), 0);                 // nothing is wedged
+        assertEq(t.creditOf(id, address(rf)), 1 ether);
+        assertEq(t.escrowBalanceOf(id), 2 ether);     // the money is still in the vault
+
+        // the credited reward is owed, so it is not refundable to the funder
+        vm.prank(publisher);
+        t.cancelTask(id);
+        uint256 b = funder.balance;
+        vm.prank(funder);
+        t.reclaimEscrow(id);
+        assertEq(funder.balance - b, 1 ether);
+        assertEq(t.escrowBalanceOf(id), 1 ether);
+    }
+
+    // ---------------- an extreme but legal judgment window must not panic
+    function test_maximal_judgment_window_does_not_overflow() public {
+        uint256 id = t.mintTask(owner, publisher, judge, TD, TH, "u",
+            ITaskTender.TenderTerms(address(0), 1 ether, 1, 0, 0, 0, 0, type(uint64).max));
+        vm.prank(funder);
+        t.fundTask{value: 1 ether}(id, 1 ether);
+        vm.prank(worker);
+        uint256 sid = t.submitFulfillment(id, RES, "");
+        // the deadline is unreachable, so both remedies are simply closed -- and neither
+        // may panic on the arithmetic that computes it
+        vm.expectRevert();
+        t.claimUnjudged(id, sid);
+        vm.prank(judge);
+        t.rejectFulfillment(id, sid);   // refusal is still open, since the window has not passed
+        assertEq(uint8(t.submissionOf(id, sid).status),
+                 uint8(ITaskTender.SubmissionStatus.Rejected));
+    }
+
+    // ---------------- refunds do not depend on who reclaims first
+    function test_refund_is_independent_of_reclaim_order() public {
+        uint256[2] memory paidFirst;
+        for (uint256 k = 0; k < 2; k++) {
+            uint256 id = t.mintTask(owner, publisher, judge, TD, TH, "u",
+                ITaskTender.TenderTerms(address(0), 1 ether, 1, 0, 0, 0, 0, 7 days));
+            vm.prank(funder);  t.fundTask{value: 2 ether}(id, 2 ether);
+            vm.prank(funder2); t.fundTask{value: 1 ether}(id, 1 ether);
+            vm.prank(worker);
+            uint256 sid = t.submitFulfillment(id, RES, "");
+            vm.prank(judge);
+            t.acceptFulfillment(id, sid);          // 1 ETH paid, 2 ETH left in the pool
+            vm.prank(publisher);
+            t.cancelTask(id);
+
+            uint256 a0 = funder.balance;
+            if (k == 0) {
+                vm.prank(funder);  t.reclaimEscrow(id);
+                vm.prank(funder2); t.reclaimEscrow(id);
+            } else {
+                vm.prank(funder2); t.reclaimEscrow(id);
+                vm.prank(funder);  t.reclaimEscrow(id);
+            }
+            paidFirst[k] = funder.balance - a0;
+        }
+        assertEq(paidFirst[0], paidFirst[1]);   // same share either way
     }
 
     // ---------------- machine tenders cannot be bricked by junk submissions

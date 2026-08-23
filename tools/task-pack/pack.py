@@ -76,11 +76,29 @@ def main():
     if enc_paths and not key:
         sys.exit("--encrypt requires --key")
 
+    # The output directory is commonly placed inside the task directory. It must never
+    # be scanned as input: a second pack would swallow the first pack's objects, change
+    # the taskHash, and -- worst of all -- carry the earlier plaintext into a package
+    # that was supposed to be confidential. And packing ON TOP of the task directory
+    # would delete the sources, so refuse that outright.
+    base_abs, out_abs = os.path.abspath(base), os.path.abspath(a.out)
+    if base_abs == out_abs:
+        sys.exit(f"--out must not be the task directory itself: publishing would delete {base!r}")
+    skip = {out_abs, out_abs.rstrip(os.sep) + ".staging"}
+
+    def excluded(full: str) -> bool:
+        full = os.path.abspath(full)
+        return any(full == s or full.startswith(s + os.sep) for s in skip)
+
     # collect files
     paths = []
     for root, _, files in os.walk(base):
+        if excluded(root):
+            continue
         for f in files:
             full = os.path.join(root, f)
+            if excluded(full):
+                continue
             rel = os.path.relpath(full, base).replace(os.sep, "/")
             paths.append(rel)
     paths.sort()

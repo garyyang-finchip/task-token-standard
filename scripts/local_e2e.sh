@@ -6,7 +6,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 rm -rf solc-out && mkdir -p solc-out
-solcjs --bin --abi --optimize --optimize-runs 200 --base-path . \
+solcjs --bin --abi --optimize --optimize-runs 1 --base-path . \
   contracts/TaskToken.sol contracts/TaskVault.sol \
   contracts/verifiers/HashlockVerifier.sol contracts/judgment/JuryPanel.sol \
   contracts/interfaces/ITaskToken.sol contracts/interfaces/ITaskTender.sol \

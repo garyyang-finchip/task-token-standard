@@ -46,7 +46,7 @@ console.log("TaskToken:", cAddr, " HashlockVerifier:", hlAddr);
 
 // ERC-165 (compiler-verified ids)
 ok(await c.supportsInterface("0xcdaeb26d"), "ERC-165 ITaskToken 0xcdaeb26d");
-ok(await c.supportsInterface("0xfced0e08"), "ERC-165 ITaskTender 0xfced0e08");
+ok(await c.supportsInterface("0xc319d532"), "ERC-165 ITaskTender 0xc319d532");
 ok(await c.supportsInterface("0xeb078d05"), "ERC-165 IOnchainTaskDocument 0xeb078d05");
 ok(await hashlock.supportsInterface("0x9977db15"), "HashlockVerifier declares ITaskVerifier 0x9977db15");
 
@@ -374,6 +374,36 @@ const evsnap = txsnap.logs.map(l => { try { return c.interface.parseLog(l); } ca
   .find(e => e && e.name === "FulfillmentAccepted");
 ok(evsnap && evsnap.args[2] === A(worker),
    "the deadline follows the delivery, not the live judgment slot");
+
+
+// ---- token 14: a fulfiller that will not take the money -----------------------
+// Settlement must never depend on the recipient being willing to receive. Before the
+// payout-credit path, a contract with a reverting fallback wedged its submission in
+// Pending forever: accept reverted, the window then closed rejection off, the default
+// claim reverted on the same transfer, and every refund sat behind pending > 0.
+const RF_ABI = [{"inputs":[{"type":"address"},{"type":"uint256"},{"type":"bytes32"}],"name":"submit","outputs":[{"type":"uint256"}],"stateMutability":"nonpayable","type":"function"},
+                {"stateMutability":"payable","type":"receive"}];
+const RF_BIN = "0x" + fs.readFileSync((process.env.SOLC_OUT ?? "./solc-out") + "/RevertingFulfiller.bin", "utf8").trim();
+const rf = await new ethers.ContractFactory(RF_ABI, RF_BIN, deployer).deploy();
+await rf.waitForDeployment();
+const RF = await rf.getAddress();
+await (await c.mintTask(A(deployer), A(publisher), A(judge), TD, TH, "u",
+  { ...terms, maxCompletions: 1n, judgmentWindow: 3600n })).wait();
+await (await c.connect(funder).fundTask(14, P(2), { value: P(2) })).wait();
+await (await rf.submit(cAddr, 14, sha("undeliverable"))).wait();
+const txc = await (await c.connect(judge).acceptFulfillment(14, 1)).wait();
+const namesC = txc.logs.map(l => { try { return c.interface.parseLog(l)?.name; } catch { return null; } });
+ok(namesC.includes("PayoutCredited"), "the payout could not be delivered, so it was credited instead");
+ok((await c.submissionOf(14, 1)).status === 1n, "the settlement still stands: the submission is Accepted");
+ok(await c.pendingOf(14) === 0n, "nothing is wedged: the reservation is released");
+ok(await c.creditOf(14, RF) === P(1), "the fulfiller is owed its reward, on the record");
+await (await c.connect(publisher).cancelTask(14)).wait();
+const txcr = await (await c.connect(funder).reclaimEscrow(14)).wait();
+const evcr = txcr.logs.map(l => { try { return c.interface.parseLog(l); } catch { return null; } })
+  .find(e => e && e.name === "EscrowReclaimed");
+ok(evcr && evcr.args[2] === P(1), "and the funder gets back only the part that was never spent");
+await mustRevert(() => c.connect(deployer).withdrawCredit.staticCall(14, A(worker)), "withdrawing a credit that does not exist");
+ok(await c.escrowBalanceOf(14) === P(1), "the credited reward stays in the vault until its owner can take it");
 
 
 console.log(`\nSMOKE RESULT: ${pass} passed, ${fail} failed`);

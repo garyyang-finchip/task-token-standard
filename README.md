@@ -76,7 +76,7 @@ vectors-objects-bundle.tar.gz   insurance copy of all vectors/*/objects/
 ```
 
 Interface IDs (compiler-verified, solc 0.8.24):
-`ITaskToken = 0xcdaeb26d` · `ITaskTender = 0xfced0e08` · `ITaskVerifier = 0x9977db15` · `IOnchainTaskDocument = 0xeb078d05`
+`ITaskToken = 0xcdaeb26d` · `ITaskTender = 0xc319d532` · `ITaskVerifier = 0x9977db15` · `IOnchainTaskDocument = 0xeb078d05`
 
 ## Quick start
 
@@ -130,6 +130,13 @@ clock rather than cryptography:
   it ignores both cancellation and `settleBy`. On the machine path it is refused —
   there, code already ruled. Rejecting is still allowed, but it must be said out loud,
   on-chain, inside a window published before any work began.
+- **A settlement never depends on the recipient taking the money.** If the transfer
+  to the fulfiller fails, the amount is credited and withdrawable later; the
+  settlement stands. Reverting instead wedged the submission forever and froze
+  every refund behind it — a whole vault lost to nothing worse than a contract
+  with a reverting fallback.
+- **Refunds no longer depend on who claims first.** The pool and denominator are
+  snapshotted at the first reclaim; flooring dust joins the owner residual.
 - **A default is still a paced settlement.** `claimUnjudged` respects the epoch
   bound. On a standing tender delivery is not paced but settlement is, so without
   this a provider could hand in every period's work at once and, on the judge's
@@ -156,11 +163,11 @@ submission age against mempool front-running. `TenderTerms` gains `judgmentWindo
 - Deterministic toolchain closed end-to-end: three frozen vectors (`public-v1`,
   `update-v2-companion-only` with constant `tdHash`, `confidential-v1`) pack, verify,
   and fail correctly on tampered inputs (descriptor/chain mismatch, missing key)
-- Contracts compile clean under solc 0.8.24 (optimized, zero warnings). `TaskToken`
-  deployed runtime code is 23,251 bytes — under the EIP-170 limit of 24,576
-  (creation bytecode 24,000); `TaskVault` 839, `JuryPanel` 2,812,
+- Contracts compile clean under solc 0.8.24 (optimizer on, 1 run: the reference implementation trades gas for size, zero warnings). `TaskToken`
+  deployed runtime code is 23,488 bytes — under the EIP-170 limit of 24,576
+  (creation bytecode 24,237); `TaskVault` 839, `JuryPanel` 2,812,
   `HashlockVerifier` 1,665. All four interface IDs compiler-verified
-- Full v3 lifecycle proven on a local chain: **89/89 assertions PASS**
+- Full v3 lifecycle proven on a local chain: **96/96 assertions PASS**
   (`scripts/local_e2e.sh`), covering the locked per-token vault (visible balance,
   drain attempts revert, direct-transfer gifts count as escrow), judged settlement
   paying from the vault, permissionless machine settlement via HashlockVerifier

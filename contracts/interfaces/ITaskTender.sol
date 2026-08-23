@@ -59,6 +59,11 @@ interface ITaskTender {
     ///         can tell an expiry from a judge's ruling.
     event SubmissionReleased(uint256 indexed tokenId, uint256 indexed submissionId,
                              uint64 deadline);
+    /// @notice Emitted when an accepted payout could not be delivered and was credited
+    ///         to the fulfiller instead. The settlement still stands; the money waits.
+    event PayoutCredited(uint256 indexed tokenId, uint256 indexed submissionId,
+                         address indexed fulfiller, uint256 amount);
+    event PayoutWithdrawn(uint256 indexed tokenId, address indexed account, uint256 amount);
     /// @notice Emitted immediately before `FulfillmentAccepted` when the acceptance
     ///         came from the judgment deadline rather than from a judge, so that an
     ///         observer can tell a ruling from a default.
@@ -113,6 +118,16 @@ interface ITaskTender {
     ///         walking away nor waiting out the clock may strip work already
     ///         delivered. This is what makes a judge's silence cost money.
     function claimUnjudged(uint256 tokenId, uint256 submissionId) external;
+
+    /// @notice Amount owed to `account` because an accepted payout could not be
+    ///         delivered to it.
+    function creditOf(uint256 tokenId, address account) external view returns (uint256);
+
+    /// @notice Pull a credited payout. Permissionless; the money only ever reaches the
+    ///         account it belongs to. Settlement never depends on a recipient being
+    ///         willing to receive, so an unreceivable fulfiller can no longer wedge a
+    ///         submission and freeze the refunds queued behind it.
+    function withdrawCredit(uint256 tokenId, address account) external;
 
     /// @notice Machine path only: release a submission that never produced a valid
     ///         proof, once `judgmentWindow` has passed, freeing its reserved slot and

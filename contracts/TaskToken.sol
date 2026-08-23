@@ -50,6 +50,16 @@ contract TaskToken is ITaskToken, ITaskTender, IOnchainTaskDocument {
     // reward. Reserved rewards are unrefundable and uncancellable — the demand side
     // cannot take back money that delivered work is already waiting on.
     mapping(uint256 => uint64)       private _pending;
+    // A settlement must never depend on the recipient being willing to receive. When a
+    // payout fails the amount is credited here and stays in the vault until pulled; it
+    // is owed money, so it is excluded from everything distributable.
+    mapping(uint256 => mapping(address => uint256)) private _credit;
+    mapping(uint256 => uint256)      private _creditTotal;
+    // Refunds are computed against a snapshot taken at the first reclaim, so the order
+    // in which funders show up cannot change what any of them receives.
+    mapping(uint256 => uint256)      private _refundPool;
+    mapping(uint256 => uint256)      private _refundDenom;
+    mapping(uint256 => bool)         private _refundOpen;
     // refund accounting: attributed contributions, pro-rata reclaim over the
     // ATTRIBUTED pool only. Rewards consume unattributed gifts before attributed
     // funds; residual gifts + dust go to the token owner (reclaimResidual).
@@ -78,13 +88,13 @@ contract TaskToken is ITaskToken, ITaskTender, IOnchainTaskDocument {
     /// Publication powers belong to the update authority alone. ERC-721 owner,
     /// approved, and operators MUST NOT reach these functions (approval-leakage rule).
     modifier onlyUpdateAuthority(uint256 tokenId) {
-        require(msg.sender == _updateAuthority[tokenId], "TaskToken: not update authority");
+        require(msg.sender == _updateAuthority[tokenId], "TaskToken: not publisher");
         _;
     }
 
     /// Judgment powers belong to the acceptance authority alone.
     modifier onlyAcceptanceAuthority(uint256 tokenId) {
-        require(msg.sender == _acceptanceAuthority[tokenId], "TaskToken: not acceptance authority");
+        require(msg.sender == _acceptanceAuthority[tokenId], "TaskToken: not judge");
         _;
     }
 
@@ -120,8 +130,8 @@ contract TaskToken is ITaskToken, ITaskTender, IOnchainTaskDocument {
         TenderTerms calldata terms
     ) external returns (uint256 tokenId) {
         require(to != address(0), "TaskToken: mint to zero");
-        require(updateAuthority_ != address(0), "TaskToken: zero update authority");
-        require(acceptanceAuthority_ != address(0), "TaskToken: zero acceptance authority");
+        require(updateAuthority_ != address(0), "TaskToken: zero publisher");
+        require(acceptanceAuthority_ != address(0), "TaskToken: zero judge");
         require(tdHash != bytes32(0) && taskHash != bytes32(0), "TaskToken: zero hash");
         require(bytes(taskURI_).length != 0, "TaskToken: empty taskURI");
         require(terms.rewardPerCompletion > 0, "TaskToken: zero reward");
@@ -131,7 +141,7 @@ contract TaskToken is ITaskToken, ITaskTender, IOnchainTaskDocument {
         // epoch pacing: both zero (off) or both nonzero (standing tender)
         require(
             (terms.epochLength == 0) == (terms.maxCompletionsPerEpoch == 0),
-            "TaskToken: epoch fields must be both zero or both set"
+            "TaskToken: bad epoch fields"
         );
         // Judgment must have a deadline. Required even when the tender mints with a
         // verifier in the judgment slot, because that slot is transferable: any
@@ -181,7 +191,7 @@ contract TaskToken is ITaskToken, ITaskTender, IOnchainTaskDocument {
         // the update MUST go through updateTaskWithDocument (atomic doc+binding).
         require(
             !_hasDocument[tokenId] || tdHash == _binding[tokenId].tdHash,
-            "TaskToken: use updateTaskWithDocument"
+            "TaskToken: use doc update"
         );
         _applyUpdate(tokenId, tdHash, taskHash);
     }
@@ -249,6 +259,34 @@ contract TaskToken is ITaskToken, ITaskTender, IOnchainTaskDocument {
         return asset == address(0) ? vault.balance : IERC20Minimal(asset).balanceOf(vault);
     }
 
+    /// The vault balance minus amounts already owed to a fulfiller whose payout could
+    /// not be delivered. Everything that allocates escrow measures against this, never
+    /// against the raw balance: credited money is spent, it merely has not moved yet.
+    function _available(uint256 tokenId) private view returns (uint256) {
+        uint256 bal = escrowBalanceOf(tokenId);
+        uint256 owed = _creditTotal[tokenId];
+        return bal > owed ? bal - owed : 0;
+    }
+
+    /// Amount owed to `account` on this token because a payout could not be delivered.
+    function creditOf(uint256 tokenId, address account)
+        external view exists(tokenId) returns (uint256)
+    {
+        return _credit[tokenId][account];
+    }
+
+    /// Pull a credited payout. Permissionless: the money only ever goes to its owner.
+    function withdrawCredit(uint256 tokenId, address account)
+        external exists(tokenId) nonReentrant
+    {
+        uint256 amount = _credit[tokenId][account];
+        require(amount > 0, "TaskToken: nothing credited");
+        _credit[tokenId][account] = 0;
+        _creditTotal[tokenId] -= amount;
+        emit PayoutWithdrawn(tokenId, account, amount);
+        _vault[tokenId].payout(_terms[tokenId].asset, account, amount);
+    }
+
     /// Submissions awaiting judgment. Each one reserves a slot and a reward.
     function pendingOf(uint256 tokenId) public view exists(tokenId) returns (uint64) {
         return _pending[tokenId];
@@ -258,7 +296,7 @@ contract TaskToken is ITaskToken, ITaskTender, IOnchainTaskDocument {
     /// Clamped to the live balance so a nonstandard asset cannot underflow it.
     function lockedEscrowOf(uint256 tokenId) public view exists(tokenId) returns (uint256) {
         uint256 locked = uint256(_pending[tokenId]) * _terms[tokenId].rewardPerCompletion;
-        uint256 bal = escrowBalanceOf(tokenId);
+        uint256 bal = _available(tokenId);
         return locked > bal ? bal : locked;
     }
 
@@ -306,7 +344,7 @@ contract TaskToken is ITaskToken, ITaskTender, IOnchainTaskDocument {
             require(ok, "TaskToken: vault deposit failed");
             credited = amount;
         } else {
-            require(msg.value == 0, "TaskToken: unexpected native value");
+            require(msg.value == 0, "TaskToken: native value");
             IERC20Minimal t = IERC20Minimal(asset);
             uint256 before = t.balanceOf(vault);
             require(t.transferFrom(msg.sender, vault, amount), "TaskToken: transferFrom failed");
@@ -340,8 +378,8 @@ contract TaskToken is ITaskToken, ITaskTender, IOnchainTaskDocument {
                 "TaskToken: completions exhausted");
         // and the reward is reserved with it: the vault must be able to pay every
         // Pending submission at once before it may take on one more.
-        require(escrowBalanceOf(tokenId) >= (uint256(_pending[tokenId]) + 1) * t.rewardPerCompletion,
-                "TaskToken: insufficient escrow to reserve");
+        require(_available(tokenId) >= (uint256(_pending[tokenId]) + 1) * t.rewardPerCompletion,
+                "TaskToken: escrow too low");
 
         submissionId = ++_submissionCount[tokenId];
         uint64 v = _binding[tokenId].version;
@@ -376,7 +414,7 @@ contract TaskToken is ITaskToken, ITaskTender, IOnchainTaskDocument {
                 "TaskToken: nonexistent submission");
         s = _submissions[tokenId][submissionId];
         require(s.status == SubmissionStatus.Pending, "TaskToken: not pending");
-        require(escrowBalanceOf(tokenId) >= t.rewardPerCompletion, "TaskToken: insolvent vault");
+        require(_available(tokenId) >= t.rewardPerCompletion, "TaskToken: insolvent vault");
     }
 
     /// Common effects: status, counts, gift-first escrow accounting, payout from
@@ -393,21 +431,29 @@ contract TaskToken is ITaskToken, ITaskTender, IOnchainTaskDocument {
         // attributed pool, maximizing what funders can later reclaim.
         uint256 reward = t.rewardPerCompletion;
         uint256 pool = _clampedPool(tokenId);
-        uint256 gift = escrowBalanceOf(tokenId) - pool;
+        uint256 gift = _available(tokenId) - pool;
         if (reward > gift) {
             _attributedPool[tokenId] = pool - (reward - gift);
         } else {
             _attributedPool[tokenId] = pool; // write back the clamp; gifts covered it all
         }
         emit FulfillmentAccepted(tokenId, submissionId, s.fulfiller, reward);
-        _vault[tokenId].payout(t.asset, s.fulfiller, reward);
+        if (!_vault[tokenId].tryPayout(t.asset, s.fulfiller, reward)) {
+            // The recipient will not take it. The settlement still stands -- the work
+            // was accepted and the money is spent -- and the amount waits in the vault
+            // for its owner to pull. Reverting here would let an unreceivable fulfiller
+            // wedge the submission forever and freeze every refund queued behind it.
+            _credit[tokenId][s.fulfiller] += reward;
+            _creditTotal[tokenId] += reward;
+            emit PayoutCredited(tokenId, submissionId, s.fulfiller, reward);
+        }
     }
 
     /// The attributed pool can never exceed the vault's live balance (guards
     /// nonstandard-asset drift); clamp before any accounting that reads it.
     function _clampedPool(uint256 tokenId) private view returns (uint256) {
         uint256 pool = _attributedPool[tokenId];
-        uint256 bal = escrowBalanceOf(tokenId);
+        uint256 bal = _available(tokenId);
         return pool > bal ? bal : pool;
     }
 
@@ -426,7 +472,7 @@ contract TaskToken is ITaskToken, ITaskTender, IOnchainTaskDocument {
         external exists(tokenId) nonReentrant
     {
         address auth = _acceptanceAuthority[tokenId];
-        require(_declaresVerifier(auth), "TaskToken: authority is not a verifier");
+        require(_declaresVerifier(auth), "TaskToken: not a verifier");
         (Submission storage s, TenderTerms storage t) = _settleChecks(tokenId, submissionId);
         require(
             ITaskVerifier(auth).verifyFulfillment(
@@ -459,7 +505,7 @@ contract TaskToken is ITaskToken, ITaskTender, IOnchainTaskDocument {
         // claim with a refusal, which makes the deadline worthless -- and worse under
         // pacing, where a queued claim waits out a whole epoch in the open.
         require(block.timestamp <= uint256(s.submittedAt) + _terms[tokenId].judgmentWindow,
-                "TaskToken: judgment window closed");
+                "TaskToken: window closed");
         s.status = SubmissionStatus.Rejected;
         _pending[tokenId] -= 1; // releases the reserved slot and reward
         emit FulfillmentRejected(tokenId, submissionId);
@@ -477,11 +523,11 @@ contract TaskToken is ITaskToken, ITaskTender, IOnchainTaskDocument {
                 "TaskToken: nonexistent submission");
         Submission storage s = _submissions[tokenId][submissionId];
         require(!s.machineSettled,
-                "TaskToken: delivered under machine settlement; no judge to default");
+                "TaskToken: machine-path delivery");
         require(s.status == SubmissionStatus.Pending, "TaskToken: not pending");
         TenderTerms storage t = _terms[tokenId];
-        uint64 deadline = s.submittedAt + t.judgmentWindow;
-        require(block.timestamp > deadline, "TaskToken: judgment window still open");
+        uint256 deadline = uint256(s.submittedAt) + t.judgmentWindow;
+        require(block.timestamp > deadline, "TaskToken: window open");
         // A default is still a settlement, so it is still paced. Skipping this would
         // let a provider deliver a whole standing tender's worth of work at once and,
         // on the judge's silence, drain the entire budget inside a single epoch —
@@ -493,7 +539,7 @@ contract TaskToken is ITaskToken, ITaskTender, IOnchainTaskDocument {
                     "TaskToken: epoch exhausted");
         }
         require(escrowBalanceOf(tokenId) >= t.rewardPerCompletion, "TaskToken: insolvent vault");
-        emit FulfillmentClaimedUnjudged(tokenId, submissionId, s.fulfiller, deadline);
+        emit FulfillmentClaimedUnjudged(tokenId, submissionId, s.fulfiller, uint64(deadline));
         _settleEffects(tokenId, submissionId, s, t);
     }
 
@@ -510,13 +556,13 @@ contract TaskToken is ITaskToken, ITaskTender, IOnchainTaskDocument {
                 "TaskToken: nonexistent submission");
         Submission storage s = _submissions[tokenId][submissionId];
         require(s.machineSettled,
-                "TaskToken: delivered under a judge; release is machine-path only");
+                "TaskToken: judged-path delivery");
         require(s.status == SubmissionStatus.Pending, "TaskToken: not pending");
-        uint64 deadline = s.submittedAt + _terms[tokenId].judgmentWindow;
-        require(block.timestamp > deadline, "TaskToken: judgment window still open");
+        uint256 deadline = uint256(s.submittedAt) + _terms[tokenId].judgmentWindow;
+        require(block.timestamp > deadline, "TaskToken: window open");
         s.status = SubmissionStatus.Rejected;
         _pending[tokenId] -= 1;
-        emit SubmissionReleased(tokenId, submissionId, deadline);
+        emit SubmissionReleased(tokenId, submissionId, uint64(deadline));
         emit FulfillmentRejected(tokenId, submissionId);
     }
 
@@ -552,14 +598,21 @@ contract TaskToken is ITaskToken, ITaskTender, IOnchainTaskDocument {
         _requireRefundable(tokenId, t);
         uint256 contributed = _contributed[tokenId][msg.sender];
         require(contributed > 0, "TaskToken: nothing to reclaim");
-        uint256 pool = _clampedPool(tokenId);
-        uint256 refund = contributed * pool / _totalOutstanding[tokenId];
+        // Snapshot the pool and the denominator at the FIRST reclaim. Recomputing them
+        // per caller made every funder's share depend on the order people showed up in.
+        if (!_refundOpen[tokenId]) {
+            _refundOpen[tokenId] = true;
+            _refundPool[tokenId] = _clampedPool(tokenId);
+            _refundDenom[tokenId] = _totalOutstanding[tokenId];
+        }
+        uint256 refund = contributed * _refundPool[tokenId] / _refundDenom[tokenId];
 
         // effects
         _contributed[tokenId][msg.sender] = 0;
         _totalOutstanding[tokenId] -= contributed;
-        // when the last funder leaves, flooring dust moves to the residual
-        _attributedPool[tokenId] = _totalOutstanding[tokenId] == 0 ? 0 : pool - refund;
+        // flooring dust stays behind and joins the owner's residual
+        _attributedPool[tokenId] = _attributedPool[tokenId] > refund
+            ? _attributedPool[tokenId] - refund : 0;
         emit EscrowReclaimed(tokenId, msg.sender, refund);
 
         // interaction
@@ -576,7 +629,7 @@ contract TaskToken is ITaskToken, ITaskTender, IOnchainTaskDocument {
         _requireRefundable(tokenId, t);
         address owner_ = ownerOf(tokenId);
         require(msg.sender == owner_, "TaskToken: not token owner");
-        uint256 residual = escrowBalanceOf(tokenId) - _clampedPool(tokenId);
+        uint256 residual = _available(tokenId) - _clampedPool(tokenId);
         require(residual > 0, "TaskToken: no residual");
         emit ResidualReclaimed(tokenId, owner_, residual);
         _vault[tokenId].payout(t.asset, owner_, residual);
@@ -590,7 +643,7 @@ contract TaskToken is ITaskToken, ITaskTender, IOnchainTaskDocument {
         // Nothing leaves the vault while delivered work is still undecided. The wait
         // is bounded: every Pending submission becomes claimable by its fulfiller at
         // submittedAt + judgmentWindow, so funders can always be made whole eventually.
-        require(_pending[tokenId] == 0, "TaskToken: pending submissions outstanding");
+        require(_pending[tokenId] == 0, "TaskToken: pending outstanding");
     }
 
     // =============================================================== IOnchainTaskDocument
