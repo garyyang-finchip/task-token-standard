@@ -19,7 +19,7 @@ Outputs (to --out, default ./out):
   vector.json        tdHash, taskHash, root CID, per-file CIDs, version info
   objects/           content-addressed leaves as published (ciphertext if encrypted)
 """
-import argparse, hashlib, json, os, sys
+import argparse, hashlib, json, os, shutil, sys
 import tom
 
 MANIFEST = "manifest.json"
@@ -55,6 +55,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("task_dir")
     ap.add_argument("--out", default="out")
+    ap.add_argument("--force", action="store_true",
+                    help="replace a non-empty output directory instead of refusing")
     ap.add_argument("--prev", help="previous taskHash (hex); REQUIRED iff --version > 1")
     ap.add_argument("--version", type=int, default=None, help="content version (default: 1, or 2 if --prev)")
     ap.add_argument("--primary", help="explicit primary document path (overrides auto-detection)")
@@ -135,7 +137,24 @@ def main():
         sys.exit(f"primary document is not valid UTF-8: {ex}")
     td_hash = tom.sha256(td_plain)  # ALWAYS the plaintext commitment
 
-    os.makedirs(os.path.join(a.out, "objects"), exist_ok=True)
+    # Publish atomically into a FRESH directory. Writing into an existing output
+    # directory silently keeps whatever was there before: repacking a public package
+    # as a confidential one used to leave the plaintext objects sitting next to the
+    # ciphertext, and verification still passed because it only walks the objects the
+    # TaskRoot references. A "confidential" package that ships its own plaintext is
+    # the worst possible failure, so refuse to reuse a non-empty directory and stage
+    # every write in a temporary sibling that replaces it only on success.
+    stage = a.out.rstrip("/\\") + ".staging"
+    if os.path.exists(a.out) and os.listdir(a.out):
+        if not a.force:
+            sys.exit(
+                f"output directory {a.out!r} is not empty. Packing into it would keep stale "
+                f"objects from an earlier run -- including plaintext that a later confidential "
+                f"pack was meant to replace. Remove it, choose another path, or pass --force."
+            )
+    if os.path.exists(stage):
+        shutil.rmtree(stage)
+    os.makedirs(os.path.join(stage, "objects"))
     conf_objects, leaves = {}, {}
 
     def publish(rel: str, plain: bytes) -> tom.Link:
@@ -149,7 +168,7 @@ def main():
             }
         else:
             link = tom.leaf_cid(data)
-        with open(os.path.join(a.out, "objects", tom.cid_digest(link.cid).hex()), "wb") as fh:
+        with open(os.path.join(stage, "objects", tom.cid_digest(link.cid).hex()), "wb") as fh:
             fh.write(data)
         leaves[rel] = link
         return link
@@ -191,7 +210,7 @@ def main():
         }
         conf_bytes = json.dumps(descriptor, sort_keys=True, separators=(",", ":")).encode()
         conf_link = tom.leaf_cid(conf_bytes)
-        with open(os.path.join(a.out, "objects", tom.cid_digest(conf_link.cid).hex()), "wb") as fh:
+        with open(os.path.join(stage, "objects", tom.cid_digest(conf_link.cid).hex()), "wb") as fh:
             fh.write(conf_bytes)
 
     spec_link = leaves.get(spec_path) or (td_link if spec_path == PRIMARY else None)
@@ -220,7 +239,7 @@ def main():
     assert tom.encode(tom.decode(root_bytes)) == root_bytes, "re-encode mismatch"
 
     t_hash = tom.sha256(root_bytes)
-    with open(os.path.join(a.out, "taskroot.cbor"), "wb") as fh:
+    with open(os.path.join(stage, "taskroot.cbor"), "wb") as fh:
         fh.write(root_bytes)
     vector = {
         "standard": "TASK-KERNEL v1.0",
@@ -232,8 +251,13 @@ def main():
         "encryptedPaths": sorted(enc_paths),
         "leaves": {rel: "0x" + tom.cid_digest(l.cid).hex() for rel, l in leaves.items()},
     }
-    with open(os.path.join(a.out, "vector.json"), "w") as fh:
+    with open(os.path.join(stage, "vector.json"), "w") as fh:
         json.dump(vector, fh, indent=2)
+
+    # atomic-enough publish: the output directory only ever holds one complete pack
+    if os.path.exists(a.out):
+        shutil.rmtree(a.out)
+    os.replace(stage, a.out)
     print(json.dumps(vector, indent=2))
 
 

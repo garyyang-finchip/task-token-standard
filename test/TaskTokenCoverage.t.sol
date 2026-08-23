@@ -299,6 +299,51 @@ contract TaskTokenCoverageTest is Test {
         assertEq(t.escrowBalanceOf(id), 3 ether);
     }
 
+    // ---------------- the right to refuse expires with the window
+    function test_rejection_expires_with_the_judgment_window() public {
+        uint256 id = mintDefault();
+        vm.prank(funder);
+        t.fundTask{value: 2 ether}(id, 2 ether);
+        vm.prank(worker);
+        uint256 s1 = t.submitFulfillment(id, RES, "");
+        vm.prank(judge);
+        t.rejectFulfillment(id, s1);   // inside the window: still allowed
+        assertEq(uint8(t.submissionOf(id, s1).status),
+                 uint8(ITaskTender.SubmissionStatus.Rejected));
+
+        vm.prank(worker);
+        uint256 s2 = t.submitFulfillment(id, sha256("second"), "");
+        vm.warp(block.timestamp + 7 days + 1);
+        // without this rule a judge could sit out the whole window and then front-run
+        // the fulfiller's claim with a refusal, leaving the deadline decorative
+        vm.prank(judge);
+        vm.expectRevert();
+        t.rejectFulfillment(id, s2);
+        uint256 b = worker.balance;
+        t.claimUnjudged(id, s2);
+        assertEq(worker.balance - b, 1 ether);
+    }
+
+    // ---------------- the settlement mode is snapshotted at delivery
+    function test_settlement_mode_is_snapshotted_at_delivery() public {
+        uint256 id = mintDefault();              // judged at the moment of delivery
+        vm.prank(funder);
+        t.fundTask{value: 1 ether}(id, 1 ether);
+        vm.prank(worker);
+        uint256 sid = t.submitFulfillment(id, RES, "");
+        assertFalse(t.submissionOf(id, sid).machineSettled);
+
+        // the demander swaps a verifier into the judgment slot after receiving the work
+        vm.prank(judge);
+        t.setAcceptanceAuthority(id, address(hashlock));
+        vm.warp(block.timestamp + 7 days + 1);
+        vm.expectRevert(); // the delivery was not made under machine settlement
+        t.releaseExpired(id, sid);
+        uint256 b = worker.balance;
+        t.claimUnjudged(id, sid);   // the deadline follows the delivery, not the slot
+        assertEq(worker.balance - b, 1 ether);
+    }
+
     // ---------------- machine tenders cannot be bricked by junk submissions
     function test_release_expired_frees_a_squatted_slot() public {
         uint256 id = t.mintTask(owner, publisher, address(hashlock), TD, TH, "u",

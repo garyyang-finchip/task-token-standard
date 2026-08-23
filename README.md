@@ -135,6 +135,15 @@ clock rather than cryptography:
   this a provider could hand in every period's work at once and, on the judge's
   silence, drain the whole budget inside one epoch. A blocked claim is queued to
   the next epoch, not lost.
+- **And the right to refuse expires with the window.** `rejectFulfillment` reverts
+  once the judgment window has closed. Otherwise a judge could stay silent the whole
+  window and then front-run the claim with a refusal — and under pacing a queued
+  claim would sit exposed for an entire epoch.
+- **The settlement mode is snapshotted at delivery.** `Submission.machineSettled`
+  records whether a verifier held the judgment slot when the work arrived, and the
+  two deadline paths route off that snapshot. Reading the live slot would let a
+  demander take delivery under a judge and then swap in a verifier to convert a debt
+  into an expiry.
 - **And junk cannot squat a machine tender.** `releaseExpired` is the machine-path
   counterpart: past the same deadline, a submission that never produced a valid proof
   is released by anyone, freeing its slot and reward. Without it the reservation rule
@@ -148,10 +157,10 @@ submission age against mempool front-running. `TenderTerms` gains `judgmentWindo
   `update-v2-companion-only` with constant `tdHash`, `confidential-v1`) pack, verify,
   and fail correctly on tampered inputs (descriptor/chain mismatch, missing key)
 - Contracts compile clean under solc 0.8.24 (optimized, zero warnings). `TaskToken`
-  deployed runtime code is 23,022 bytes — under the EIP-170 limit of 24,576
-  (creation bytecode 23,771); `TaskVault` 839, `JuryPanel` 2,812,
+  deployed runtime code is 23,251 bytes — under the EIP-170 limit of 24,576
+  (creation bytecode 24,000); `TaskVault` 839, `JuryPanel` 2,812,
   `HashlockVerifier` 1,665. All four interface IDs compiler-verified
-- Full v3 lifecycle proven on a local chain: **83/83 assertions PASS**
+- Full v3 lifecycle proven on a local chain: **89/89 assertions PASS**
   (`scripts/local_e2e.sh`), covering the locked per-token vault (visible balance,
   drain attempts revert, direct-transfer gifts count as escrow), judged settlement
   paying from the vault, permissionless machine settlement via HashlockVerifier

@@ -339,5 +339,42 @@ ok(await c.pendingOf(11) === 0n && await c.escrowBalanceOf(11) === P(1),
    "the rejection freed the slot and the reward, and no money moved");
 
 
+// ---- tokens 12-13: the judge's right to refuse expires with the window ---------
+// A judge that stays silent for the whole window must not then be able to front-run
+// the fulfiller's claim with a refusal; and a demander must not be able to escape the
+// deadline by swapping the judgment slot after the work has arrived.
+await (await c.mintTask(A(deployer), A(publisher), A(judge), TD, TH, "u",
+  { ...terms, maxCompletions: 2n, judgmentWindow: 3600n })).wait();
+await (await c.connect(funder).fundTask(12, P(2), { value: P(2) })).wait();
+await (await c.connect(worker).submitFulfillment(12, sha("delivery-a"), "")).wait();
+await (await c.connect(judge).rejectFulfillment(12, 1)).wait();
+ok((await c.submissionOf(12, 1)).status === 2n, "inside the window the judge may still refuse");
+await (await c.connect(worker).submitFulfillment(12, sha("delivery-b"), "")).wait();
+await warp(3601);
+await mustRevert(() => c.connect(judge).rejectFulfillment.staticCall(12, 2),
+  "refusing after the judgment window has closed");
+const txlate = await (await c.connect(worker).claimUnjudged(12, 2)).wait();
+const evlate = txlate.logs.map(l => { try { return c.interface.parseLog(l); } catch { return null; } })
+  .find(e => e && e.name === "FulfillmentAccepted");
+ok(evlate && evlate.args[2] === A(worker),
+   "so the claim cannot be front-run: silence really does pay the fulfiller");
+
+// the settlement mode is a snapshot taken when the delivery was made
+await (await c.mintTask(A(deployer), A(publisher), A(judge), TD, TH, "u",
+  { ...terms, maxCompletions: 1n, judgmentWindow: 3600n })).wait();
+await (await c.connect(funder).fundTask(13, P(1), { value: P(1) })).wait();
+await (await c.connect(worker).submitFulfillment(13, sha("delivery-c"), "")).wait();
+ok((await c.submissionOf(13, 1)).machineSettled === false, "the delivery records that a judge held the slot");
+await (await c.connect(judge).setAcceptanceAuthority(13, hlAddr)).wait();   // swap in a verifier
+await warp(3601);
+await mustRevert(() => c.connect(worker).releaseExpired.staticCall(13, 1),
+  "releasing a delivery that was made under a judge, after a verifier was swapped in");
+const txsnap = await (await c.connect(worker).claimUnjudged(13, 1)).wait();
+const evsnap = txsnap.logs.map(l => { try { return c.interface.parseLog(l); } catch { return null; } })
+  .find(e => e && e.name === "FulfillmentAccepted");
+ok(evsnap && evsnap.args[2] === A(worker),
+   "the deadline follows the delivery, not the live judgment slot");
+
+
 console.log(`\nSMOKE RESULT: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

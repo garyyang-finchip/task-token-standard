@@ -32,6 +32,11 @@ interface ITaskTender {
         uint64           taskVersion; // binding version cited at submission time
         uint64           submittedAt; // block timestamp; starts the judgment clock, and lets
                                       // verifiers require a minimum age against front-running
+        bool             machineSettled; // whether the acceptance authority declared
+                                      // ITaskVerifier WHEN THIS DELIVERY WAS MADE. Routing
+                                      // the deadline off a snapshot rather than off the live
+                                      // slot is what stops a demander escaping the deadline
+                                      // by swapping the judge after receiving the work.
         SubmissionStatus status;
     }
 

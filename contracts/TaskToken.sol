@@ -345,8 +345,12 @@ contract TaskToken is ITaskToken, ITaskTender, IOnchainTaskDocument {
 
         submissionId = ++_submissionCount[tokenId];
         uint64 v = _binding[tokenId].version;
-        _submissions[tokenId][submissionId] =
-            Submission(msg.sender, resultHash, v, uint64(block.timestamp), SubmissionStatus.Pending);
+        // Snapshot the settlement mode as it stands for THIS delivery. Reading the live
+        // authority later would let a demander receive the work and then swap the
+        // judgment slot to escape the deadline in either direction.
+        _submissions[tokenId][submissionId] = Submission(
+            msg.sender, resultHash, v, uint64(block.timestamp),
+            _declaresVerifier(_acceptanceAuthority[tokenId]), SubmissionStatus.Pending);
         _pending[tokenId] += 1;
         emit FulfillmentSubmitted(tokenId, submissionId, msg.sender, resultHash, resultURI, v);
     }
@@ -450,6 +454,12 @@ contract TaskToken is ITaskToken, ITaskTender, IOnchainTaskDocument {
                 "TaskToken: nonexistent submission");
         Submission storage s = _submissions[tokenId][submissionId];
         require(s.status == SubmissionStatus.Pending, "TaskToken: not pending");
+        // The right to refuse expires exactly when the right to claim begins. Without
+        // this a judge could stay silent for the whole window and then front-run the
+        // claim with a refusal, which makes the deadline worthless -- and worse under
+        // pacing, where a queued claim waits out a whole epoch in the open.
+        require(block.timestamp <= uint256(s.submittedAt) + _terms[tokenId].judgmentWindow,
+                "TaskToken: judgment window closed");
         s.status = SubmissionStatus.Rejected;
         _pending[tokenId] -= 1; // releases the reserved slot and reward
         emit FulfillmentRejected(tokenId, submissionId);
@@ -463,11 +473,11 @@ contract TaskToken is ITaskToken, ITaskTender, IOnchainTaskDocument {
     function claimUnjudged(uint256 tokenId, uint256 submissionId)
         external exists(tokenId) nonReentrant
     {
-        require(!_declaresVerifier(_acceptanceAuthority[tokenId]),
-                "TaskToken: machine-settled tender has no judge to default");
         require(submissionId >= 1 && submissionId <= _submissionCount[tokenId],
                 "TaskToken: nonexistent submission");
         Submission storage s = _submissions[tokenId][submissionId];
+        require(!s.machineSettled,
+                "TaskToken: delivered under machine settlement; no judge to default");
         require(s.status == SubmissionStatus.Pending, "TaskToken: not pending");
         TenderTerms storage t = _terms[tokenId];
         uint64 deadline = s.submittedAt + t.judgmentWindow;
@@ -496,11 +506,11 @@ contract TaskToken is ITaskToken, ITaskTender, IOnchainTaskDocument {
     function releaseExpired(uint256 tokenId, uint256 submissionId)
         external exists(tokenId)
     {
-        require(_declaresVerifier(_acceptanceAuthority[tokenId]),
-                "TaskToken: judged tender has a judge; release is machine-path only");
         require(submissionId >= 1 && submissionId <= _submissionCount[tokenId],
                 "TaskToken: nonexistent submission");
         Submission storage s = _submissions[tokenId][submissionId];
+        require(s.machineSettled,
+                "TaskToken: delivered under a judge; release is machine-path only");
         require(s.status == SubmissionStatus.Pending, "TaskToken: not pending");
         uint64 deadline = s.submittedAt + _terms[tokenId].judgmentWindow;
         require(block.timestamp > deadline, "TaskToken: judgment window still open");
