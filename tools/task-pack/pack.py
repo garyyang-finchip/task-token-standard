@@ -81,14 +81,30 @@ def main():
     # the taskHash, and -- worst of all -- carry the earlier plaintext into a package
     # that was supposed to be confidential. And packing ON TOP of the task directory
     # would delete the sources, so refuse that outright.
-    base_abs, out_abs = os.path.abspath(base), os.path.abspath(a.out)
+    # Compare RESOLVED, CASE-NORMALISED paths. A plain string comparison of abspath is
+    # a Windows footgun: NTFS is case-insensitive, so --out casesource addresses the very
+    # same directory as CaseSource and slips straight past an == test, after which the
+    # publish step deletes the sources it was told never to touch. Symlinks alias the
+    # same way on every platform.
+    def pathkey(path: str) -> str:
+        return os.path.normcase(os.path.realpath(os.path.abspath(path)))
+
+    def inside(child: str, parent: str) -> bool:
+        try:
+            return os.path.commonpath([child, parent]) == parent
+        except ValueError:      # different drives -- unrelated by construction
+            return False
+
+    base_abs, out_abs = pathkey(base), pathkey(a.out)
     if base_abs == out_abs:
         sys.exit(f"--out must not be the task directory itself: publishing would delete {base!r}")
-    skip = {out_abs, out_abs.rstrip(os.sep) + ".staging"}
+    if inside(base_abs, out_abs):
+        sys.exit(f"--out must not contain the task directory: publishing would delete {base!r}")
+    skip = {out_abs, pathkey(a.out.rstrip("/\\") + ".staging")}
 
     def excluded(full: str) -> bool:
-        full = os.path.abspath(full)
-        return any(full == s or full.startswith(s + os.sep) for s in skip)
+        k = pathkey(full)
+        return any(k == s or inside(k, s) for s in skip)
 
     # collect files
     paths = []

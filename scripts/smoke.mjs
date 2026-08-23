@@ -381,10 +381,13 @@ ok(evsnap && evsnap.args[2] === A(worker),
 // payout-credit path, a contract with a reverting fallback wedged its submission in
 // Pending forever: accept reverted, the window then closed rejection off, the default
 // claim reverted on the same transfer, and every refund sat behind pending > 0.
+// The fixtures live in scripts/helpers/SmokeFixtures.sol and are compiled by
+// local_e2e.sh alongside the contracts, so this runs from a fresh clone.
+const FX = (n) => "0x" + fs.readFileSync(
+  (process.env.SOLC_OUT ?? "./solc-out") + "/scripts_helpers_SmokeFixtures_sol_" + n + ".bin", "utf8").trim();
 const RF_ABI = [{"inputs":[{"type":"address"},{"type":"uint256"},{"type":"bytes32"}],"name":"submit","outputs":[{"type":"uint256"}],"stateMutability":"nonpayable","type":"function"},
                 {"stateMutability":"payable","type":"receive"}];
-const RF_BIN = "0x" + fs.readFileSync((process.env.SOLC_OUT ?? "./solc-out") + "/RevertingFulfiller.bin", "utf8").trim();
-const rf = await new ethers.ContractFactory(RF_ABI, RF_BIN, deployer).deploy();
+const rf = await new ethers.ContractFactory(RF_ABI, FX("RevertingFulfiller"), deployer).deploy();
 await rf.waitForDeployment();
 const RF = await rf.getAddress();
 await (await c.mintTask(A(deployer), A(publisher), A(judge), TD, TH, "u",
@@ -404,6 +407,77 @@ const evcr = txcr.logs.map(l => { try { return c.interface.parseLog(l); } catch 
 ok(evcr && evcr.args[2] === P(1), "and the funder gets back only the part that was never spent");
 await mustRevert(() => c.connect(deployer).withdrawCredit.staticCall(14, A(worker)), "withdrawing a credit that does not exist");
 ok(await c.escrowBalanceOf(14) === P(1), "the credited reward stays in the vault until its owner can take it");
+
+
+// ---- token 15: an ordinary contract fulfiller, and one that is simply expensive --
+// The push path forwards a bounded budget, not a token stipend. A contract that
+// records its payment and reads the tender back is ordinary, not hostile, and it must
+// be paid outright. A contract that costs more than the budget is not punished either:
+// it is credited, and the pull path -- where the beneficiary pays its own gas -- has
+// no cap at all, so the credit is always withdrawable. A cap on BOTH would have made
+// the credit unreachable by exactly the contracts it exists to rescue.
+const OBS_ABI = [{"inputs":[{"type":"uint256"},{"type":"bytes32"}],"name":"submit","outputs":[{"type":"uint256"}],"stateMutability":"nonpayable","type":"function"},
+                 {"inputs":[],"name":"received","outputs":[{"type":"bool"}],"stateMutability":"view","type":"function"},
+                 {"inputs":[],"name":"gasOnReceive","outputs":[{"type":"uint256"}],"stateMutability":"view","type":"function"},
+                 {"inputs":[],"name":"seenCompletions","outputs":[{"type":"uint256"}],"stateMutability":"view","type":"function"},
+                 {"inputs":[],"name":"seenEscrow","outputs":[{"type":"uint256"}],"stateMutability":"view","type":"function"},
+                 {"inputs":[{"type":"address"}],"stateMutability":"nonpayable","type":"constructor"},
+                 {"stateMutability":"payable","type":"receive"}];
+const HVY_ABI = [{"inputs":[{"type":"uint256"},{"type":"bytes32"}],"name":"submit","outputs":[{"type":"uint256"}],"stateMutability":"nonpayable","type":"function"},
+                 {"inputs":[],"name":"taken","outputs":[{"type":"uint256"}],"stateMutability":"view","type":"function"},
+                 {"inputs":[{"type":"address"}],"stateMutability":"nonpayable","type":"constructor"},
+                 {"stateMutability":"payable","type":"receive"}];
+const obs = await new ethers.ContractFactory(OBS_ABI, FX("ObservingFulfiller"), deployer).deploy(cAddr);
+await obs.waitForDeployment();
+await (await c.mintTask(A(deployer), A(publisher), A(judge), TD, TH, "u",
+  { ...terms, maxCompletions: 2n, judgmentWindow: 3600n })).wait();
+await (await c.connect(funder).fundTask(15, P(4), { value: P(4) })).wait();
+await (await obs.submit(15, sha("observed"))).wait();
+const tx15 = await (await c.connect(judge).acceptFulfillment(15, 1)).wait();
+const n15 = tx15.logs.map(l => { try { return c.interface.parseLog(l)?.name; } catch { return null; } });
+ok(await obs.received() === true, "an ordinary contract fulfiller is paid outright, not gas-starved");
+ok(!n15.includes("PayoutCredited"), "no credit was needed: the push succeeded");
+ok(await obs.gasOnReceive() > 2300n, "real gas was forwarded, not a stipend");
+ok(await obs.seenCompletions() === 1n && await obs.seenEscrow() === P(3),
+   "effects precede the transfer: the count and the vault debit are already visible");
+
+const hvy = await new ethers.ContractFactory(HVY_ABI, FX("HeavyFulfiller"), deployer).deploy(cAddr);
+await hvy.waitForDeployment();
+const HV = await hvy.getAddress();
+await (await hvy.submit(15, sha("expensive"))).wait();
+// explicit limit: a subcall that deliberately runs out of gas makes ganache's
+// estimateGas binary search diverge. The contract is unaffected; the estimator is.
+const tx15b = await (await c.connect(judge).acceptFulfillment(15, 2, { gasLimit: 600000 })).wait();
+const n15b = tx15b.logs.map(l => { try { return c.interface.parseLog(l)?.name; } catch { return null; } });
+ok(n15b.includes("PayoutCredited"), "a receiver too expensive for the bounded push is credited, not wedged");
+ok(await c.creditOf(15, HV) === P(1), "the amount owed is on the record");
+await (await c.connect(deployer).withdrawCredit(15, HV)).wait();
+ok(await hvy.taken() === P(1), "and the pull path forwards enough gas for it to actually collect");
+ok(await c.creditOf(15, HV) === 0n && await c.escrowBalanceOf(15) === P(2),
+   "the credit is settled and the vault is down by exactly the reward");
+
+// ---- token 16: the last funder out, and the door closing behind them -------------
+// Flooring leaves dust. The dust belongs to the token owner, which only works if the
+// attributed pool is actually released when the last funder leaves. And once the
+// pro-rata ratio is snapshotted, new funding must be refused: money arriving after
+// the denominator was fixed would be refunded against a share it never bought.
+await (await c.mintTask(A(deployer), A(publisher), A(judge), TD, TH, "u",
+  { ...terms, rewardPerCompletion: 1n, maxCompletions: 1n, judgmentWindow: 3600n })).wait();
+await (await c.connect(funder).fundTask(16, 2n, { value: 2n })).wait();
+await (await c.connect(worker).fundTask(16, 1n, { value: 1n })).wait();
+await (await c.connect(worker).submitFulfillment(16, sha("dust"), "")).wait();
+await (await c.connect(judge).acceptFulfillment(16, 1)).wait();
+await (await c.connect(publisher).cancelTask(16)).wait();
+await (await c.connect(funder).reclaimEscrow(16)).wait();
+await mustRevert(() => c.connect(deployer).fundTask.staticCall(16, 1n, { value: 1n }),
+                 "funding a tender whose refund ratio is already fixed");
+await (await c.connect(worker).reclaimEscrow(16)).wait();
+ok(await c.escrowBalanceOf(16) === 1n, "one wei of flooring dust is left over, as designed");
+const tx16 = await (await c.connect(deployer).reclaimResidual(16)).wait();
+const ev16 = tx16.logs.map(l => { try { return c.interface.parseLog(l); } catch { return null; } })
+  .find(e => e && e.name === "ResidualReclaimed");
+ok(ev16 && ev16.args[2] === 1n, "and it reaches the token owner instead of being locked forever");
+ok(await c.escrowBalanceOf(16) === 0n, "the vault closes at zero: nothing is stranded");
 
 
 console.log(`\nSMOKE RESULT: ${pass} passed, ${fail} failed`);

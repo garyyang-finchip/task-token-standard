@@ -11,6 +11,7 @@ solcjs --bin --abi --optimize --optimize-runs 1 --base-path . \
   contracts/verifiers/HashlockVerifier.sol contracts/judgment/JuryPanel.sol \
   contracts/interfaces/ITaskToken.sol contracts/interfaces/ITaskTender.sol \
   contracts/interfaces/ITaskVerifier.sol contracts/interfaces/IOnchainTaskDocument.sol \
+  scripts/helpers/SmokeFixtures.sol \
   -o solc-out
 
 ganache --wallet.mnemonic "test test test test test test test test test test test junk" \

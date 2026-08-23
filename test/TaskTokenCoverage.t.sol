@@ -84,6 +84,52 @@ contract MinimalERC20 {
     }
 }
 
+
+/// A fulfiller that is expensive rather than hostile: it records the payment and
+/// writes a page of its own state. Well beyond any bounded push budget, and exactly
+/// the receiver the credit path has to make whole.
+contract HeavyFulfiller {
+    ITaskTender public t;
+    uint256[40] public slots;
+    uint256 public taken;
+
+    constructor(address _t) { t = ITaskTender(_t); }
+
+    function submit(uint256 id, bytes32 rh) external returns (uint256) {
+        return t.submitFulfillment(id, rh, "");
+    }
+
+    receive() external payable {
+        taken += msg.value;
+        for (uint256 i = 0; i < 40; i++) slots[i] = i + 1;
+    }
+}
+
+/// An ERC-20 whose `transfer` answers with a word that is not a clean bool. Decoding
+/// it as one reverts, which on the settlement path would wedge the submission the
+/// non-reverting payout exists to protect.
+contract MalformedERC20 {
+    mapping(address => uint256) public balanceOf;
+    mapping(address => mapping(address => uint256)) public allowance;
+
+    function mint(address to, uint256 amount) external { balanceOf[to] += amount; }
+    function approve(address sp, uint256 amount) external returns (bool) {
+        allowance[msg.sender][sp] = amount; return true;
+    }
+    function transferFrom(address from, address to, uint256 amount) external returns (bool) {
+        allowance[from][msg.sender] -= amount;
+        balanceOf[from] -= amount; balanceOf[to] += amount; return true;
+    }
+    /// Returns 0x02 in the return word: neither `true` nor `false` to abi.decode.
+    function transfer(address to, uint256 amount) external returns (bool) {
+        balanceOf[msg.sender] -= amount; balanceOf[to] += amount;
+        assembly {
+            mstore(0, 2)
+            return(0, 32)
+        }
+    }
+}
+
 /// Second assertion layer: the normative clauses that TaskToken.t.sol leaves
 /// unasserted — every `MUST emit`, the post-cancellation and post-freeze
 /// closures, the authority gates reachable only through operator approval,
@@ -757,5 +803,108 @@ contract TaskTokenCoverageTest is Test {
         vm.prank(owner);
         vm.expectRevert(); // gift fully consumed: there is no residual to take
         t.reclaimResidual(id);
+    }
+
+    // ---------------- the last funder out releases the pool; the dust reaches the owner
+    function test_refund_dust_is_not_stranded() public {
+        uint256 id = t.mintTask(owner, publisher, judge, TD, TH, "u",
+                                ITaskTender.TenderTerms(address(0), 1, 1, 0, 0, 0, 0, 7 days));
+        vm.deal(funder, 10); vm.deal(funder2, 10);
+        vm.prank(funder);  t.fundTask{value: 2}(id, 2);
+        vm.prank(funder2); t.fundTask{value: 1}(id, 1);
+        vm.prank(worker);  uint256 sid = t.submitFulfillment(id, RES, "");
+        vm.prank(judge);   t.acceptFulfillment(id, sid);
+        vm.prank(publisher); t.cancelTask(id);
+
+        vm.prank(funder);  t.reclaimEscrow(id);      // 2 * 2 / 3 = 1
+        vm.prank(funder2); t.reclaimEscrow(id);      // 1 * 2 / 3 = 0
+        assertEq(t.escrowBalanceOf(id), 1);          // one wei of flooring dust
+
+        uint256 before = owner.balance;
+        vm.prank(owner);
+        t.reclaimResidual(id);                       // MUST reach the owner, not lock
+        assertEq(owner.balance - before, 1);
+        assertEq(t.escrowBalanceOf(id), 0);
+    }
+
+    // ---------------- funding closes once the pro-rata ratio has been fixed
+    function test_no_funding_after_refunds_open() public {
+        uint256 id = t.mintTask(owner, publisher, judge, TD, TH, "u",
+                                ITaskTender.TenderTerms(address(0), 1 ether, 1, 0, 0, 0, 0, 7 days));
+        vm.deal(funder, 10 ether); vm.deal(funder2, 10 ether);
+        vm.prank(funder); t.fundTask{value: 3 ether}(id, 3 ether);
+        vm.prank(worker); uint256 sid = t.submitFulfillment(id, RES, "");
+        vm.prank(judge);  t.acceptFulfillment(id, sid);
+        vm.prank(publisher); t.cancelTask(id);
+        vm.prank(funder); t.reclaimEscrow(id);       // snapshots pool 2 / denom 3
+
+        vm.prank(funder2);
+        vm.expectRevert("TaskToken: refunding");     // would be refunded against a
+        t.fundTask{value: 3 ether}(id, 3 ether);     // denominator taken before it existed
+    }
+
+    // ---------------- an expensive receiver is credited AND can actually collect
+    function test_credit_is_withdrawable_by_expensive_receiver() public {
+        HeavyFulfiller h = new HeavyFulfiller(address(t));
+        uint256 id = mintDefault();
+        vm.deal(funder, 10 ether);
+        vm.prank(funder); t.fundTask{value: 2 ether}(id, 2 ether);
+        uint256 sid = h.submit(id, RES);
+        vm.prank(judge); t.acceptFulfillment(id, sid);
+
+        assertEq(t.creditOf(id, address(h)), 1 ether);   // push was too expensive
+        assertEq(uint8(t.submissionOf(id, sid).status), uint8(ITaskTender.SubmissionStatus.Accepted));
+        assertEq(t.pendingOf(id), 0);
+
+        t.withdrawCredit(id, address(h));                // pull path: no gas cap
+        assertEq(h.taken(), 1 ether);
+        assertEq(t.creditOf(id, address(h)), 0);
+    }
+
+    // ---------------- a token that answers with a malformed word must not wedge anything
+    function test_malformed_erc20_return_credits_instead_of_reverting() public {
+        MalformedERC20 m = new MalformedERC20();
+        uint256 id = t.mintTask(owner, publisher, judge, TD, TH, "u",
+                                ITaskTender.TenderTerms(address(m), 50e18, 1, 0, 0, 0, 0, 7 days));
+        m.mint(funder, 500e18);
+        vm.prank(funder); m.approve(address(t), 500e18);
+        vm.prank(funder); t.fundTask(id, 100e18);
+        vm.prank(worker); uint256 sid = t.submitFulfillment(id, RES, "");
+
+        vm.prank(judge);
+        t.acceptFulfillment(id, sid);                    // MUST NOT revert on the reply
+        assertEq(uint8(t.submissionOf(id, sid).status), uint8(ITaskTender.SubmissionStatus.Accepted));
+        assertEq(t.pendingOf(id), 0);                    // nothing wedged
+        assertEq(t.creditOf(id, worker), 50e18);         // the reply was unreadable
+    }
+
+    // ---------------- a default claim must leave outstanding credit fully backed
+    // The reservation check already keeps the vault solvent against every pending
+    // submission, so reading the raw balance here was not exploitable in this
+    // implementation -- but it was the wrong quantity, and a default claim paid out of
+    // credited money would leave the credit unbacked. This asserts the invariant the
+    // corrected check protects: after a claim, the vault still covers what it owes.
+    function test_claim_unjudged_leaves_credit_backed() public {
+        HeavyFulfiller h = new HeavyFulfiller(address(t));
+        uint256 id = t.mintTask(owner, publisher, judge, TD, TH, "u",
+                                ITaskTender.TenderTerms(address(0), 1 ether, 3, 0, 0, 0, 0, 7 days));
+        vm.deal(funder, 10 ether);
+        vm.prank(funder); t.fundTask{value: 2 ether}(id, 2 ether);
+
+        vm.prank(worker); uint256 sid1 = t.submitFulfillment(id, RES, "");
+        uint256 sid2 = h.submit(id, sha256("heavy"));
+        vm.prank(judge); t.acceptFulfillment(id, sid2);
+
+        assertEq(t.creditOf(id, address(h)), 1 ether);
+        assertEq(t.escrowBalanceOf(id), 2 ether);   // the raw balance still shows it all
+
+        vm.warp(block.timestamp + 8 days);
+        t.claimUnjudged(id, sid1);                  // the silent judge pays the worker
+
+        assertEq(t.escrowBalanceOf(id), 1 ether);
+        assertEq(t.creditOf(id, address(h)), 1 ether);
+        assertTrue(t.escrowBalanceOf(id) >= t.creditOf(id, address(h)));  // still backed
+        t.withdrawCredit(id, address(h));           // and still collectable
+        assertEq(h.taken(), 1 ether);
     }
 }

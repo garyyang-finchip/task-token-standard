@@ -334,6 +334,11 @@ contract TaskToken is ITaskToken, ITaskTender, IOnchainTaskDocument {
         external payable exists(tokenId) nonReentrant
     {
         require(!_cancelled[tokenId], "TaskToken: cancelled");
+        // Once the first funder has reclaimed, the pro-rata ratio is frozen. Money
+        // arriving after that would be divided by a denominator taken before it
+        // existed, so a late funder would reclaim less than it put in and the shortfall
+        // would sit in the vault with no claimant. Funding closes with the snapshot.
+        require(!_refundOpen[tokenId], "TaskToken: refunding");
         require(amount > 0, "TaskToken: zero amount");
         address asset = _terms[tokenId].asset;
         address payable vault = payable(address(_vault[tokenId]));
@@ -538,7 +543,9 @@ contract TaskToken is ITaskToken, ITaskTender, IOnchainTaskDocument {
             require(_epochCompletions[tokenId][epoch] < t.maxCompletionsPerEpoch,
                     "TaskToken: epoch exhausted");
         }
-        require(escrowBalanceOf(tokenId) >= t.rewardPerCompletion, "TaskToken: insolvent vault");
+        // _available, not the raw balance: a credited payout is already spoken for, and
+        // paying a default claim out of it would leave the credit unbacked.
+        require(_available(tokenId) >= t.rewardPerCompletion, "TaskToken: insolvent vault");
         emit FulfillmentClaimedUnjudged(tokenId, submissionId, s.fulfiller, uint64(deadline));
         _settleEffects(tokenId, submissionId, s, t);
     }
@@ -613,6 +620,11 @@ contract TaskToken is ITaskToken, ITaskTender, IOnchainTaskDocument {
         // flooring dust stays behind and joins the owner's residual
         _attributedPool[tokenId] = _attributedPool[tokenId] > refund
             ? _attributedPool[tokenId] - refund : 0;
+        // ...but only if the pool is actually released when the last funder leaves.
+        // Otherwise the dust stays inside the attributed pool, reclaimResidual keeps
+        // subtracting it, and it is locked in the vault forever instead of accruing to
+        // the owner as this contract and the standard both promise.
+        if (_totalOutstanding[tokenId] == 0) _attributedPool[tokenId] = 0;
         emit EscrowReclaimed(tokenId, msg.sender, refund);
 
         // interaction

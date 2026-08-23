@@ -71,7 +71,8 @@ tools/task-pack/         pack.py (canonical packer) / verify.py (fulfiller-side 
 schemas/                 task manifest + fulfillment descriptor + confidentiality JSON Schemas
 vectors/                 frozen test vectors (KEY.demo files are NON-CRYPTOGRAPHIC TEST keys)
 sample-task/             the source package the vectors are built from
-scripts/                 local_e2e.sh + smoke.mjs (solc-js + ganache lifecycle, 55 assertions)
+scripts/                 local_e2e.sh + smoke.mjs (solc-js + ganache lifecycle, 108 assertions)
+scripts/helpers/         SmokeFixtures.sol — fulfiller/token fixtures the smoke run compiles
 vectors-objects-bundle.tar.gz   insurance copy of all vectors/*/objects/
 ```
 
@@ -103,10 +104,11 @@ forge test -vvv
 
 # 4) local chain lifecycle without Foundry (solc-js + ganache + ethers):
 #    vault lock -> judged + machine settlement -> epoch pacing -> jury panel ->
-#    cancel -> pro-rata reclaim + owner residual -> on-chain document. 55 assertions.
+#    cancel -> pro-rata reclaim + owner residual -> payout credit -> on-chain
+#    document. 108 assertions.
 npm install -g solc@0.8.24 ganache && npm install ethers@6
 bash scripts/local_e2e.sh
-# expected: SMOKE RESULT: 55 passed, 0 failed
+# expected: SMOKE RESULT: 108 passed, 0 failed
 
 ```
 
@@ -164,10 +166,10 @@ submission age against mempool front-running. `TenderTerms` gains `judgmentWindo
   `update-v2-companion-only` with constant `tdHash`, `confidential-v1`) pack, verify,
   and fail correctly on tampered inputs (descriptor/chain mismatch, missing key)
 - Contracts compile clean under solc 0.8.24 (optimizer on, 1 run: the reference implementation trades gas for size, zero warnings). `TaskToken`
-  deployed runtime code is 23,488 bytes — under the EIP-170 limit of 24,576
-  (creation bytecode 24,237); `TaskVault` 839, `JuryPanel` 2,812,
-  `HashlockVerifier` 1,665. All four interface IDs compiler-verified
-- Full v3 lifecycle proven on a local chain: **96/96 assertions PASS**
+  deployed runtime code is 23,766 bytes — under the EIP-170 limit of 24,576
+  (creation bytecode 24,515); `TaskVault` 1,205, `JuryPanel` 2,720,
+  `HashlockVerifier` 1,651. All four interface IDs compiler-verified
+- Full v3 lifecycle proven on a local chain: **108/108 assertions PASS**
   (`scripts/local_e2e.sh`), covering the locked per-token vault (visible balance,
   drain attempts revert, direct-transfer gifts count as escrow), judged settlement
   paying from the vault, permissionless machine settlement via HashlockVerifier
