@@ -6,6 +6,17 @@ row is a token that was minted, funded, delivered against, judged, and settled o
 refunded on a public chain, and every hash in this file is re-derivable from this
 repository with `tools/task-pack/pack.py`.
 
+> **Superseded, and deliberately left in place.** These tokens were settled under the
+> implementation as it stood before the external review of 2026-08-23. That review
+> found three defects, all now fixed in this repository: a judge could refuse a
+> delivery after its judgment window had closed, front-running the fulfiller's claim;
+> a demander could escape the deadline entirely by swapping a verifier into the
+> judgment slot after receiving the work; and the packer left stale plaintext objects
+> in an output directory that was repacked as confidential. The contract below
+> therefore no longer matches `contracts/`. This file is kept as the record of what was
+> run, and MUST be regenerated against the fixed implementation before the ERC pull
+> request cites any address.
+
 **Network:** Sepolia (chain id 11155111)
 **Kernel:** TASK-KERNEL v3.0
 **Compiler:** solc 0.8.24, optimizer enabled, 200 runs
