@@ -101,7 +101,7 @@ revised before freezing, so `tdHash` stayed constant while `taskHash` moved and 
 contract incremented the version to 2 — and the delivery records that it answered
 revision 2. Funding in a token rejected accompanying ether. The deliverable is a real
 document, `examples/case-4-deliverable/OPINION.md`, which passes the tender's own
-public conformance check (21 checks) and which that check rejects when deliberately
+public conformance check (20 checks) and which that check rejects when deliberately
 degraded.
 
 **Case 5 — funders, judges and workers, all different parties.** Two institutions
