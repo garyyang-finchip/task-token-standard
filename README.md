@@ -35,6 +35,37 @@ Task Object Model      deterministic DAG-CBOR object graph, per-file CIDs (off-c
                        byte-compatible with the ERC-8338 Skill Object Model — one toolchain, two standards
 ```
 
+## Static task, faucet task — the two halves of the demand side
+
+ERC-8338 has two usages of one artifact: a **static skill token** (buy the capability
+once) and an **API Call Token** (buy the capability as a metered stream — per call,
+per period, per unit of compute). The demand side mirrors both, and this standard
+covers both with **one kernel and no mode flag**:
+
+| | supply side (ERC-8338) | demand side (this standard) |
+|---|---|---|
+| **static** — one exchange, then done | static skill token | **static task**: one tender, one vault, settled when the work is accepted |
+| **continuous** — a metered stream | API Call Token | **faucet task**: a standing demand that keeps paying per delivery for as long as the vault is refilled |
+
+Together the four quadrants make the agent economy complete in both directions and
+both tempos: `T(f(v), f⁻¹($)) = ($, v)`, whether `f` and `f⁻¹` are exercised once or
+continuously.
+
+A faucet task is not a second mechanism. It is the same `TenderTerms` with the cadence
+fields set — which is why every worked example, static or faucet, settles through the
+same code path and the same tests:
+
+| API Call Token meters by | a faucet task meters by | kernel field |
+|---|---|---|
+| count (per call) | per accepted delivery | `rewardPerCompletion` × the completion counter (`maxCompletions`, `0` = open-ended) |
+| time (per period) | per epoch | `epochLength` + `maxCompletionsPerEpoch` |
+| compute (per unit of work) | per unit of work, *as the task package defines the unit* | the completion itself — `fulfillment.json` says what one completion is; the kernel pays a flat price per unit |
+
+The tap opens with `fundTask` (anyone, any time, any number of times) and closes with
+`cancelTask` — with every delivery already in flight still protected by its reservation
+and its judgment window. Case 2 below is a faucet task that ran on Sepolia; cases 1, 3,
+4 and 5 are static tasks.
+
 ## Fulfillment shapes (one number + one address, no new mechanisms)
 
 | Shape | On-chain expression |
@@ -42,7 +73,7 @@ Task Object Model      deterministic DAG-CBOR object graph, per-file CIDs (off-c
 | Exclusive — one task, one fulfiller | `maxCompletions = 1` |
 | Collaborative — one task, a team shares one reward | `maxCompletions = 1`, fulfiller of record = split contract (ERC-1155 shares) |
 | Replicated — N completions, each earns the same reward | `maxCompletions = N` (0 = unbounded, funded incrementally) |
-| Standing (subscription-reverse) — paced deliveries over time | `epochLength` + `maxCompletionsPerEpoch` (e.g. 1/day × 365) — the inverse of supply-side metered point-card assets |
+| **Faucet** (standing tender) — a continuing demand, paid per delivery as long as money flows | `epochLength` + `maxCompletionsPerEpoch` for cadence, `maxCompletions = 0` for open-ended, `fundTask` at any time to refill — the inverse of supply-side metered point-card assets |
 | Subcontracted | submission permissionless; economic shares transfer via companion ERC-1155 contracts |
 
 Settlement spans the whole task spectrum through one slot: point `acceptanceAuthority`
