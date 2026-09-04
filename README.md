@@ -35,7 +35,7 @@ Task Object Model      deterministic DAG-CBOR object graph, per-file CIDs (off-c
                        byte-compatible with the ERC-8338 Skill Object Model — one toolchain, two standards
 ```
 
-## Static task, faucet task — the two halves of the demand side
+## Static task token, faucet task token — the two halves of the demand side
 
 ERC-8338 has two usages of one artifact: a **static skill token** (buy the capability
 once) and an **API Call Token** (buy the capability as a metered stream — per call,
@@ -44,18 +44,18 @@ covers both with **one kernel and no mode flag**:
 
 | | supply side (ERC-8338) | demand side (this standard) |
 |---|---|---|
-| **static** — one exchange, then done | static skill token | **static task**: one tender, one vault, settled when the work is accepted |
-| **continuous** — a metered stream | API Call Token | **faucet task**: a standing demand that keeps paying per delivery for as long as the vault is refilled |
+| **static** — one exchange, then done | static skill token | **static task token**: one tender, one vault, settled when the work is accepted |
+| **continuous** — a metered stream | API Call Token | **faucet task token**: a standing demand that keeps paying per delivery for as long as the vault is refilled |
 
 Together the four quadrants make the agent economy complete in both directions and
 both tempos: `T(f(v), f⁻¹($)) = ($, v)`, whether `f` and `f⁻¹` are exercised once or
 continuously.
 
-A faucet task is not a second mechanism. It is the same `TenderTerms` with the cadence
+A faucet task token is not a second mechanism. It is the same `TenderTerms` with the cadence
 fields set — which is why every worked example, static or faucet, settles through the
 same code path and the same tests:
 
-| API Call Token meters by | a faucet task meters by | kernel field |
+| API Call Token meters by | a faucet task token meters by | kernel field |
 |---|---|---|
 | count (per call) | per accepted delivery | `rewardPerCompletion` × the completion counter (`maxCompletions`, `0` = open-ended) |
 | time (per period) | per epoch | `epochLength` + `maxCompletionsPerEpoch` |
@@ -63,8 +63,8 @@ same code path and the same tests:
 
 The tap opens with `fundTask` (anyone, any time, any number of times) and closes with
 `cancelTask` — with every delivery already in flight still protected by its reservation
-and its judgment window. Case 2 below is a faucet task that ran on Sepolia; cases 1, 3,
-4 and 5 are static tasks.
+and its judgment window. Case 2 below is a faucet task token that ran on Sepolia; cases 1, 3,
+4 and 5 are static task tokens.
 
 ## Fulfillment shapes (one number + one address, no new mechanisms)
 
