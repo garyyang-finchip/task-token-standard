@@ -6,37 +6,30 @@ row is a token that was minted, funded, delivered against, judged, and settled o
 refunded on a public chain, and every hash in this file is re-derivable from this
 repository with `tools/task-pack/pack.py`.
 
-> **Superseded, and deliberately left in place.** These tokens were settled under the
-> implementation as it stood before the external review of 2026-08-23. That review
-> found three defects, all now fixed in this repository: a judge could refuse a
-> delivery after its judgment window had closed, front-running the fulfiller's claim;
-> a demander could escape the deadline entirely by swapping a verifier into the
-> judgment slot after receiving the work; and the packer left stale plaintext objects
-> in an output directory that was repacked as confidential. The contract below
-> therefore no longer matches `contracts/`. This file is kept as the record of what was
-> run, and MUST be regenerated against the fixed implementation before the ERC pull
-> request cites any address.
+This deployment is the implementation as it stands in `contracts/` after three rounds
+of external review (v3.2.1). It supersedes the pre-review deployment at
+`0x0c94CbEf5BC8493c6c0fFe086c090a86bB787415`, which is kept on chain as a record but
+MUST NOT be cited as the reference.
 
 **Network:** Sepolia (chain id 11155111)
-**Kernel:** TASK-KERNEL v3.0
-**Compiler:** solc 0.8.24, optimizer enabled, 200 runs
-**Deployed runtime:** 23,022 bytes (EIP-170 limit 24,576)
+**Kernel:** TASK-KERNEL v3.2.1
+**Compiler:** solc 0.8.24, optimizer enabled, 1 run
+**Deployed runtime:** 23,766 bytes (EIP-170 limit 24,576)
+**Executed:** 2026-09-05, 107 on-chain assertions across the five examples, zero failures
 
 ## Contracts
 
 | Contract | Address | Role |
 | --- | --- | --- |
-| `TaskToken` | `0x0c94CbEf5BC8493c6c0fFe086c090a86bB787415` | the reference implementation; every example token lives here |
-| `HashlockVerifier` | `0xbe729724394045403c1CAe4B8c2601fbFb371FB5` | stock machine-settlement verifier (`contracts/verifiers/`) |
-| `BatchReceiptVerifier` | `0xC3977D0d734dBfC22F1F66D49F2430dDc5034834` | example verifier: one secret per claim plus a minimum submission age |
-| `JuryPanel` | `0x34499Cc21bA9463171E206546A17A3b1973C0795` | 2-of-2 review committee, 60-second voting window |
-| `FixedSplitter` | `0x075ce02B1d2d4bD1bF47d4B936f468f983E5A771` | a team as fulfiller of record, shares 50/30/20 |
-| `DemoUSD` | `0xB45BbB7439CC5157C6a2E440D4D5B84d84b4bf99` | points-style ERC-20 used to price case 4; **not a stablecoin** |
+| `TaskToken` | `0xA62059A498E40C4Ae4aF926E2B00C1Ff122bDdb7` | the reference implementation; every example token lives here |
+| `HashlockVerifier` | `0x495270468A4608e4c84968b1037ef7eceBF5d3ec` | stock machine-settlement verifier (`contracts/verifiers/`) |
+| `BatchReceiptVerifier` | `0x075CF6D7236e50Bb120f3285035f51E0321B30EA` | example verifier: one secret per claim plus a minimum submission age |
+| `JuryPanel` | `0x7249E48c7E2131ADA0fcc25b1eaE4f4258545511` | 2-of-2 review committee, 60-second voting window |
+| `FixedSplitter` | `0xEcb83C71fc1692Dc9ED65dD3f46BAA803bBdE8a2` | a team as fulfiller of record, shares 50/30/20 |
+| `DemoUSD` | `0x2c36C7c918e3244aBd70b405952EB4c2FB8A8d05` | points-style ERC-20 used to price case 4; **not a stablecoin** |
 
-ERC-165 interface identifiers as reported by **this** deployment. `ITaskTender` has
-since changed to `0xc319d532` in `contracts/`, because the audit fixes added the
-payout-credit surface; the value below is the historical fact, not the current one:
-`ITaskToken = 0xcdaeb26d` · `ITaskTender = 0xfced0e08` ·
+ERC-165 interface identifiers, compiler-verified and reported on-chain:
+`ITaskToken = 0xcdaeb26d` · `ITaskTender = 0xc319d532` ·
 `ITaskVerifier = 0x9977db15` · `IOnchainTaskDocument = 0xeb078d05`
 
 ## Tokens
@@ -55,13 +48,13 @@ payout-credit surface; the value below is the historical fact, not the current o
 
 | # | vault | `tdHash` | `taskHash` |
 | --- | --- | --- | --- |
-| 1 | `0xf6e70C50e0489eBA5c3aDb3E3E7BBc56fd527d6A` | `0x6ad6b032…bef51` | `0x4c26ef3d…543f0` |
-| 2 | `0x9eb599aFa56638737B308e6b83807f405E810bF6` | `0x15e36f9d…3ed15` | `0x334112fb…4ef71` |
-| 3 | `0x2A2C7556DeFF8A06E67838B3Ae783926C71dF148` | `0xcf05fd60…856f6` | `0x5ee9f031…1628f` |
-| 4 | `0x7d2762F82Bced06DA73B07Cb5346c27021C520d6` | `0xcf05fd60…856f6` | `0x5ee9f031…1628f` |
-| 5 | `0xB350aE20A069aEbd27955965C0CBCE61AbDB01ed` | `0x1dcff919…b387` (constant across both revisions) | v1 `0x5385e8cd…9a5c` → v2 `0xc349895e…400f` |
-| 6 | `0xC7356FE11333550fa2DB2d4A67AF85d4fF26d423` | `0x9288202a…c74fd` | `0xdcc3850c…4ebc2` |
-| 7 | `0x7c4C82a83C69DEAB37C7798F66f236a3c4449113` | `0x8051df89…d49f4` | `0x4f3ef8bd…04788` |
+| 1 | `0x62B63071b6505887ACb4b9AAd56459D1dEF950E3` | `0x6ad6b032…bef51` | `0x4c26ef3d…543f0` |
+| 2 | `0xCa440D770c02A6536feeFa410E27583f2F90D3D1` | `0x15e36f9d…3ed15` | `0x334112fb…4ef71` |
+| 3 | `0x473F994A3c74d6e3E245430F9450A1B2179352fb` | `0xcf05fd60…856f6` | `0x5ee9f031…1628f` |
+| 4 | `0x40aF04eF8AAe7D5da2300f16FD6162c2a6A0776E` | `0xcf05fd60…856f6` | `0x5ee9f031…1628f` |
+| 5 | `0xA933Ab14982023940Df7E64537aFc4C2b6F591b7` | `0x1dcff919…eb387` (constant across both revisions) | v1 0x5385e8cd…49a5c → v2 0xc349895e…e400f |
+| 6 | `0xfD188aD10E6E1be6717962cad5d524C5BDb935fB` | `0x9288202a…c74fd` | `0xdcc3850c…4ebc2` |
+| 7 | `0xC13F993C6b0d5300aE648db15A0Ac36caB9E64D3` | `0x8051df89…d49f4` | `0x4f3ef8bd…04788` |
 
 Deliverable commitments settled on-chain, also re-derivable from this repository:
 
@@ -82,7 +75,7 @@ failed twice — once on the minimum submission age, once, after the age require
 met, on the Merkle proof — because each claim's leaf binds the annotator it was issued
 to. The junk left behind squatted the last slot until `releaseExpired` freed it.
 
-**Case 2 — a standing tender, paced.** One settlement per period, enforced against
+**Case 2 — a faucet task token, paced.** One settlement per period, enforced against
 both the judged path and the deadline path. Delivery was not paced; settlement was.
 The buyer rejected one report on the record, the supplier corrected it, and when the
 buyer went silent on a later period the supplier claimed the fee itself. Cancelling
@@ -117,14 +110,17 @@ the reward, and the unspent gift went to the token holder.
 ## Reproducing any of it
 
 ```bash
-# 1. re-derive an example's anchors from source
+# 1. re-derive every example's anchors from source (all nine packages, canonical flags)
+bash scripts/pack_examples.sh
+
+#    or one at a time, e.g.
 python3 tools/task-pack/pack.py examples/case-1-labeling-qa --out out/ \
     --primary TASK.md --spec spec/labeling-schema.yaml --spec-profile x-support-intent-taxonomy-v1 \
     --acceptance acceptance/gold-standard-qa.md --acceptance-profile x-batch-receipt-merkle-minage-v1 \
     --max-completions 3
 
 # 2. compare against the chain
-cast call 0x0c94CbEf5BC8493c6c0fFe086c090a86bB787415 "taskOf(uint256)" 7 --rpc-url $SEPOLIA_RPC
+cast call 0xA62059A498E40C4Ae4aF926E2B00C1Ff122bDdb7 "taskOf(uint256)" 7 --rpc-url $SEPOLIA_RPC
 ```
 
 The on-chain primary document can be read back with `taskDocument(tokenId)` and
@@ -132,11 +128,16 @@ hashed: it equals `tdHash` for every token that published one.
 
 ## Provenance and honesty notes
 
-- These tokens were produced while the standard was being hardened. Three defects
-  were found by building these examples and fixed before this deployment: a demander
-  could cancel away work already delivered; junk submissions could freeze a
-  machine-settled tender permanently; and a default claim could outrun epoch pacing.
-  All seven tokens above run on the post-fix implementation.
+- These tokens were produced on the implementation as reviewed. Fourteen defects were
+  found and fixed before this deployment — three by building these examples, eleven
+  across three rounds of external review — and every one is covered by a test that
+  fails against the code that had it. The earlier deployment at
+  `0x0c94CbEf5BC8493c6c0fFe086c090a86bB787415` predates the last eleven.
+- A first v3.2.1 deployment at `0x1B3EC29e538D1614FE260216c2cb0D495a3bFE8A` was abandoned
+  the same day: its example packages had been packed with abbreviated flags, so the
+  `taskHash` values minted there are not the ones `scripts/pack_examples.sh`
+  derives. The contract is correct; its tokens 2–6 are simply not reproducible from
+  this repository and MUST NOT be cited. The deployment above is the reference.
 - The *work* behind each example is illustrative. Nobody labelled 30,000 tickets or
   built an invoice agent. What is real is the protocol: every commitment, judgment,
   payment, refund and refusal above happened on Sepolia, and every hash is checkable
