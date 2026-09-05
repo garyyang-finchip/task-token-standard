@@ -122,6 +122,7 @@ schemas/                 task manifest + fulfillment descriptor + confidentialit
 vectors/                 frozen test vectors (KEY.demo files are NON-CRYPTOGRAPHIC TEST keys)
 sample-task/             the source package the vectors are built from
 scripts/                 local_e2e.sh + smoke.mjs (solc-js + ganache lifecycle, 108 assertions)
+                         pack_examples.sh — canonical pack flags for all nine example packages
 scripts/helpers/         SmokeFixtures.sol — fulfiller/token fixtures the smoke run compiles
 vectors-objects-bundle.tar.gz   insurance copy of all vectors/*/objects/
 ```
@@ -277,7 +278,14 @@ BatchReceiptVerifier.sol              profile x-batch-receipt-merkle-minage-v1 �
                                       minimum submission age read from `submittedAt`
 ```
 
-Re-derive an example's anchors the same way as the frozen vectors:
+Re-derive every example's anchors with the exact flags the Sepolia record was produced
+with — one script, nine packages, byte-for-byte the hashes in `examples/DEPLOYMENTS.md`:
+
+```bash
+bash scripts/pack_examples.sh
+```
+
+Or individually, the same way as the frozen vectors:
 
 ```bash
 python3 tools/task-pack/pack.py examples/case-3-invoice-agent --out examples/case-3-invoice-agent/out \
