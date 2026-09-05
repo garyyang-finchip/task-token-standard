@@ -115,7 +115,7 @@ contracts/               TaskToken.sol + TaskVault.sol + interfaces (ITaskToken 
                          / ITaskVerifier / IOnchainTaskDocument)
 contracts/verifiers/     HashlockVerifier.sol — stock machine-settlement verifier
 contracts/judgment/      JuryPanel.sol — K-of-N reference judging authority
-test/                    Foundry suite, one assertion cluster per MUST clause
+test/                    Foundry suite, 58 tests, one assertion cluster per MUST clause
 tools/task-pack/         pack.py (canonical packer) / verify.py (fulfiller-side verifier)
                          / tom.py (deterministic DAG-CBOR + CID library, zero deps)
 schemas/                 task manifest + fulfillment descriptor + confidentiality JSON Schemas
@@ -220,6 +220,8 @@ submission age against mempool front-running. `TenderTerms` gains `judgmentWindo
   deployed runtime code is 23,766 bytes — under the EIP-170 limit of 24,576
   (creation bytecode 24,515); `TaskVault` 1,205, `JuryPanel` 2,720,
   `HashlockVerifier` 1,651. All four interface IDs compiler-verified
+- Foundry suite executed on forge 1.7.1: **58/58 tests PASS** (`forge test`), one
+  assertion cluster per normative clause
 - Full v3 lifecycle proven on a local chain: **108/108 assertions PASS**
   (`scripts/local_e2e.sh`), covering the locked per-token vault (visible balance,
   drain attempts revert, direct-transfer gifts count as escrow), judged settlement

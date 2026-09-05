@@ -132,19 +132,32 @@ contract TaskTokenTest is Test {
 
     // ---------------- nonexistent tokenId MUST revert on all views
     function test_nonexistent_reverts() public {
-        vm.expectRevert(); t.taskOf(42);
-        vm.expectRevert(); t.taskURI(42);
-        vm.expectRevert(); t.updateAuthorityOf(42);
-        vm.expectRevert(); t.isTaskFrozen(42);
-        vm.expectRevert(); t.vaultOf(42);
-        vm.expectRevert(); t.tenderTermsOf(42);
-        vm.expectRevert(); t.acceptanceAuthorityOf(42);
-        vm.expectRevert(); t.escrowBalanceOf(42);
-        vm.expectRevert(); t.completionsOf(42);
-        vm.expectRevert(); t.completionsInEpochOf(42, 0);
-        vm.expectRevert(); t.isTenderCancelled(42);
-        vm.expectRevert(); t.submissionCountOf(42);
-        vm.expectRevert(); t.hasOnchainTaskDocument(42);
+        vm.expectRevert();
+        t.taskOf(42);
+        vm.expectRevert();
+        t.taskURI(42);
+        vm.expectRevert();
+        t.updateAuthorityOf(42);
+        vm.expectRevert();
+        t.isTaskFrozen(42);
+        vm.expectRevert();
+        t.vaultOf(42);
+        vm.expectRevert();
+        t.tenderTermsOf(42);
+        vm.expectRevert();
+        t.acceptanceAuthorityOf(42);
+        vm.expectRevert();
+        t.escrowBalanceOf(42);
+        vm.expectRevert();
+        t.completionsOf(42);
+        vm.expectRevert();
+        t.completionsInEpochOf(42, 0);
+        vm.expectRevert();
+        t.isTenderCancelled(42);
+        vm.expectRevert();
+        t.submissionCountOf(42);
+        vm.expectRevert();
+        t.hasOnchainTaskDocument(42);
     }
 
     // ---------------- vault lock: the standard's most sensitive invariant
@@ -157,11 +170,14 @@ contract TaskTokenTest is Test {
         assertEq(t.escrowBalanceOf(id), 2 ether);            // escrow == live vault balance
         // nobody can drain: not owner, not authorities, not randos
         vm.prank(owner);
-        vm.expectRevert(); TaskVault(vault).payout(address(0), owner, 1 ether);
+        vm.expectRevert();
+        TaskVault(vault).payout(address(0), owner, 1 ether);
         vm.prank(publisher);
-        vm.expectRevert(); TaskVault(vault).payout(address(0), publisher, 1 ether);
+        vm.expectRevert();
+        TaskVault(vault).payout(address(0), publisher, 1 ether);
         vm.prank(judge);
-        vm.expectRevert(); TaskVault(vault).payout(address(0), judge, 1 ether);
+        vm.expectRevert();
+        TaskVault(vault).payout(address(0), judge, 1 ether);
         // direct transfer to the vault counts as escrow (unattributed gift)
         vm.prank(rando);
         (bool ok, ) = vault.call{value: 0.5 ether}("");
@@ -189,32 +205,41 @@ contract TaskTokenTest is Test {
         vm.prank(owner);
         t.approve(rando, id);
         vm.prank(owner);
-        vm.expectRevert(); t.updateTask(id, TD, TH2);
+        vm.expectRevert();
+        t.updateTask(id, TD, TH2);
         vm.prank(rando);
-        vm.expectRevert(); t.updateTask(id, TD, TH2);
+        vm.expectRevert();
+        t.updateTask(id, TD, TH2);
         vm.prank(rando);
-        vm.expectRevert(); t.freezeTask(id);
+        vm.expectRevert();
+        t.freezeTask(id);
         vm.prank(rando);
-        vm.expectRevert(); t.cancelTask(id);
+        vm.expectRevert();
+        t.cancelTask(id);
         vm.prank(owner);
-        vm.expectRevert(); t.setAcceptanceAuthority(id, rando);
+        vm.expectRevert();
+        t.setAcceptanceAuthority(id, rando);
         vm.prank(judge);
-        vm.expectRevert(); t.updateTask(id, TD, TH2);
+        vm.expectRevert();
+        t.updateTask(id, TD, TH2);
         vm.prank(publisher);
-        vm.expectRevert(); t.setAcceptanceAuthority(id, rando);
+        vm.expectRevert();
+        t.setAcceptanceAuthority(id, rando);
     }
 
     // ---------------- authority transfers; zero forbidden; separately held
     function test_authority_transfers() public {
         uint256 id = mintDefault();
         vm.prank(publisher);
-        vm.expectRevert(); t.setUpdateAuthority(id, address(0));
+        vm.expectRevert();
+        t.setUpdateAuthority(id, address(0));
         vm.prank(publisher);
         t.setUpdateAuthority(id, rando);
         assertEq(t.updateAuthorityOf(id), rando);
         assertEq(t.acceptanceAuthorityOf(id), judge);
         vm.prank(judge);
-        vm.expectRevert(); t.setAcceptanceAuthority(id, address(0));
+        vm.expectRevert();
+        t.setAcceptanceAuthority(id, address(0));
         vm.prank(judge);
         t.setAcceptanceAuthority(id, worker2);
         assertEq(t.acceptanceAuthorityOf(id), worker2);
@@ -240,9 +265,11 @@ contract TaskTokenTest is Test {
         t.freezeTask(id);
         assertTrue(t.isTaskFrozen(id));
         vm.prank(publisher);
-        vm.expectRevert(); t.updateTask(id, TD, TH2);
+        vm.expectRevert();
+        t.updateTask(id, TD, TH2);
         vm.prank(publisher);
-        vm.expectRevert(); t.freezeTask(id);
+        vm.expectRevert();
+        t.freezeTask(id);
         vm.prank(publisher);
         t.setTaskURI(id, "ipfs://mirror");
         vm.prank(funder);
@@ -290,14 +317,17 @@ contract TaskTokenTest is Test {
         // means the tender has to have room and money for it.
         uint256 id = t.mintTask(owner, publisher, address(hashlock), TD, TH, "u",
                                 ITaskTender.TenderTerms(address(0), 1 ether, 2, 0, 0, 0, 0, 7 days));
+        bytes32 _h1 = sha256(answer);
         vm.prank(rando);
         vm.expectRevert(); // only update authority commits the answer
-        hashlock.commitAnswer(address(t), id, sha256(answer));
+        hashlock.commitAnswer(address(t), id, _h1);
+        bytes32 _h2 = sha256(answer);
         vm.prank(publisher);
-        hashlock.commitAnswer(address(t), id, sha256(answer));
+        hashlock.commitAnswer(address(t), id, _h2);
+        bytes32 _h3 = sha256("43");
         vm.prank(publisher);
         vm.expectRevert(); // set-once: no moving the goalposts
-        hashlock.commitAnswer(address(t), id, sha256("43"));
+        hashlock.commitAnswer(address(t), id, _h3);
 
         vm.prank(funder);
         t.fundTask{value: 2 ether}(id, 2 ether);
@@ -341,10 +371,12 @@ contract TaskTokenTest is Test {
                                 ITaskTender.TenderTerms(address(0), 1 ether, 0, 0, 0, 1 days, 1, 7 days));
         vm.prank(funder);
         t.fundTask{value: 10 ether}(id, 10 ether);
+        bytes32 _h4 = sha256("day1");
         vm.prank(worker);
-        uint256 s1 = t.submitFulfillment(id, sha256("day1"), "");
+        uint256 s1 = t.submitFulfillment(id, _h4, "");
+        bytes32 _h5 = sha256("day1-again");
         vm.prank(worker);
-        uint256 s2 = t.submitFulfillment(id, sha256("day1-again"), "");
+        uint256 s2 = t.submitFulfillment(id, _h5, "");
         vm.prank(judge);
         t.acceptFulfillment(id, s1);
         uint64 epoch = uint64(block.timestamp / 1 days);
@@ -384,8 +416,9 @@ contract TaskTokenTest is Test {
         assertEq(worker.balance, before + 1 ether);
         assertEq(t.completionsOf(id), 1);
         // timeout default: a stalled case resolves to rejection, finalizable by anyone
+        bytes32 _h6 = sha256("second try");
         vm.prank(worker);
-        uint256 s2 = t.submitFulfillment(id, sha256("second try"), "");
+        uint256 s2 = t.submitFulfillment(id, _h6, "");
         vm.prank(jurors[0]);
         panel.vote(address(t), id, s2, true); // 1-of-3, window opens
         vm.warp(block.timestamp + 3 days + 1);
@@ -474,8 +507,9 @@ contract TaskTokenTest is Test {
         vm.prank(judge);
         vm.expectRevert();
         t.acceptFulfillment(id, sid);
+        bytes32 _h7 = sha256("deliverable v2");
         vm.prank(worker);
-        uint256 s2 = t.submitFulfillment(id, sha256("deliverable v2"), "");
+        uint256 s2 = t.submitFulfillment(id, _h7, "");
         vm.prank(judge);
         t.acceptFulfillment(id, s2);
     }
@@ -487,23 +521,26 @@ contract TaskTokenTest is Test {
         t.fundTask{value: 10 ether}(id, 10 ether);
         vm.prank(worker);
         uint256 s1 = t.submitFulfillment(id, RES, "");
+        bytes32 _h8 = sha256("d2");
         vm.prank(worker2);
-        uint256 s2 = t.submitFulfillment(id, sha256("d2"), "");
+        uint256 s2 = t.submitFulfillment(id, _h8, "");
         // v3.0: the bound is consumed by DELIVERY, not by acceptance. Both slots are
         // now reserved, so a third worker cannot be lured into unpayable work.
         assertEq(t.pendingOf(id), 2);
+        bytes32 _h9 = sha256("d3");
         vm.prank(rando);
         vm.expectRevert();
-        t.submitFulfillment(id, sha256("d3"), "");
+        t.submitFulfillment(id, _h9, "");
         vm.startPrank(judge);
         t.acceptFulfillment(id, s1);
         t.acceptFulfillment(id, s2);
         vm.stopPrank();
         assertEq(t.completionsOf(id), 2);
         assertEq(t.pendingOf(id), 0);
+        bytes32 _h10 = sha256("late");
         vm.prank(worker);
         vm.expectRevert(); // completions exhausted
-        t.submitFulfillment(id, sha256("late"), "");
+        t.submitFulfillment(id, _h10, "");
     }
 
     // ---------------- cancel + pro-rata reclaim over live vault balance
@@ -524,7 +561,8 @@ contract TaskTokenTest is Test {
         t.cancelTask(id);
         assertTrue(t.isTenderCancelled(id));
         vm.prank(funder);
-        vm.expectRevert(); t.fundTask{value: 1 ether}(id, 1 ether);
+        vm.expectRevert();
+        t.fundTask{value: 1 ether}(id, 1 ether);
         uint256 b1 = funder.balance;
         vm.prank(funder);
         t.reclaimEscrow(id);
@@ -608,9 +646,10 @@ contract TaskTokenTest is Test {
         assertTrue(t.hasOnchainTaskDocument(id));
         assertEq(t.taskDocument(id), doc);
         assertEq(t.taskOf(id).version, 1);
+        bytes32 _h11 = sha256("new doc");
         vm.prank(publisher);
         vm.expectRevert();
-        t.updateTask(id, sha256("new doc"), TH2);
+        t.updateTask(id, _h11, TH2);
         vm.prank(publisher);
         t.updateTaskWithDocument(id, "new doc", TH2);
         assertEq(t.taskOf(id).tdHash, sha256("new doc"));

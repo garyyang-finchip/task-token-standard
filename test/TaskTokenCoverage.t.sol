@@ -130,6 +130,28 @@ contract MalformedERC20 {
     }
 }
 
+/// An ERC-20 whose `transfer` replies with a single byte: too short to be any bool.
+/// Reading it MUST NOT throw; it MUST be treated as a failed transfer and credited.
+contract ShortReplyERC20 {
+    mapping(address => uint256) public balanceOf;
+    mapping(address => mapping(address => uint256)) public allowance;
+
+    function mint(address to, uint256 amount) external { balanceOf[to] += amount; }
+    function approve(address sp, uint256 amount) external returns (bool) {
+        allowance[msg.sender][sp] = amount; return true;
+    }
+    function transferFrom(address from, address to, uint256 amount) external returns (bool) {
+        allowance[from][msg.sender] -= amount;
+        balanceOf[from] -= amount; balanceOf[to] += amount; return true;
+    }
+    function transfer(address, uint256) external pure returns (bool) {
+        assembly {
+            mstore(0, 1)
+            return(0, 1)
+        }
+    }
+}
+
 /// Second assertion layer: the normative clauses that TaskToken.t.sol leaves
 /// unasserted — every `MUST emit`, the post-cancellation and post-freeze
 /// closures, the authority gates reachable only through operator approval,
@@ -212,8 +234,9 @@ contract TaskTokenCoverageTest is Test {
         vm.prank(judge);
         t.acceptFulfillment(id, 1);
 
+        bytes32 _h1 = sha256("d2");
         vm.prank(worker);
-        t.submitFulfillment(id, sha256("d2"), "");
+        t.submitFulfillment(id, _h1, "");
         vm.expectEmit(true, true, true, true);
         emit ITaskTender.FulfillmentRejected(id, 2);
         vm.prank(judge);
@@ -274,16 +297,22 @@ contract TaskTokenCoverageTest is Test {
 
         // closed: nothing new comes in, and cancellation is irreversible
         vm.prank(funder);
-        vm.expectRevert(); t.fundTask{value: 1 ether}(id, 1 ether);
+        vm.expectRevert();
+        t.fundTask{value: 1 ether}(id, 1 ether);
+        bytes32 _h2 = sha256("x");
         vm.prank(worker);
-        vm.expectRevert(); t.submitFulfillment(id, sha256("x"), "");
+        vm.expectRevert();
+        t.submitFulfillment(id, _h2, "");
         vm.prank(publisher);
-        vm.expectRevert(); t.cancelTask(id);
+        vm.expectRevert();
+        t.cancelTask(id);
         // and the money already owed cannot be walked away with
         vm.prank(funder);
-        vm.expectRevert(); t.reclaimEscrow(id);
+        vm.expectRevert();
+        t.reclaimEscrow(id);
         vm.prank(owner);
-        vm.expectRevert(); t.reclaimResidual(id);
+        vm.expectRevert();
+        t.reclaimResidual(id);
 
         // open: the delivered submission is still judgeable, and still pays
         assertEq(t.pendingOf(id), 1);
@@ -366,8 +395,9 @@ contract TaskTokenCoverageTest is Test {
         assertEq(uint8(t.submissionOf(id, s1).status),
                  uint8(ITaskTender.SubmissionStatus.Rejected));
 
+        bytes32 _h3 = sha256("second");
         vm.prank(worker);
-        uint256 s2 = t.submitFulfillment(id, sha256("second"), "");
+        uint256 s2 = t.submitFulfillment(id, _h3, "");
         vm.warp(block.timestamp + 7 days + 1);
         // without this rule a judge could sit out the whole window and then front-run
         // the fulfiller's claim with a refusal, leaving the deadline decorative
@@ -452,8 +482,10 @@ contract TaskTokenCoverageTest is Test {
         for (uint256 k = 0; k < 2; k++) {
             uint256 id = t.mintTask(owner, publisher, judge, TD, TH, "u",
                 ITaskTender.TenderTerms(address(0), 1 ether, 1, 0, 0, 0, 0, 7 days));
-            vm.prank(funder);  t.fundTask{value: 2 ether}(id, 2 ether);
-            vm.prank(funder2); t.fundTask{value: 1 ether}(id, 1 ether);
+            vm.prank(funder);
+            t.fundTask{value: 2 ether}(id, 2 ether);
+            vm.prank(funder2);
+            t.fundTask{value: 1 ether}(id, 1 ether);
             vm.prank(worker);
             uint256 sid = t.submitFulfillment(id, RES, "");
             vm.prank(judge);
@@ -463,11 +495,15 @@ contract TaskTokenCoverageTest is Test {
 
             uint256 a0 = funder.balance;
             if (k == 0) {
-                vm.prank(funder);  t.reclaimEscrow(id);
-                vm.prank(funder2); t.reclaimEscrow(id);
+                vm.prank(funder);
+                t.reclaimEscrow(id);
+                vm.prank(funder2);
+                t.reclaimEscrow(id);
             } else {
-                vm.prank(funder2); t.reclaimEscrow(id);
-                vm.prank(funder);  t.reclaimEscrow(id);
+                vm.prank(funder2);
+                t.reclaimEscrow(id);
+                vm.prank(funder);
+                t.reclaimEscrow(id);
             }
             paidFirst[k] = funder.balance - a0;
         }
@@ -480,8 +516,9 @@ contract TaskTokenCoverageTest is Test {
                                 ITaskTender.TenderTerms(address(0), 1 ether, 1, 0, 0, 0, 0, 7 days));
         vm.prank(funder);
         t.fundTask{value: 1 ether}(id, 1 ether);
+        bytes32 _h4 = sha256("junk");
         vm.prank(rando);
-        uint256 sid = t.submitFulfillment(id, sha256("junk"), "");
+        uint256 sid = t.submitFulfillment(id, _h4, "");
         // with no judge to reject it, this one submission holds the only slot and the
         // whole vault: without a release it would freeze the tender forever
         assertEq(t.pendingOf(id), 1);
@@ -498,8 +535,9 @@ contract TaskTokenCoverageTest is Test {
         assertEq(t.pendingOf(id), 0);
         assertEq(t.lockedEscrowOf(id), 0);
         // the tender lives again for a genuine solver
+        bytes32 _h5 = sha256("real attempt");
         vm.prank(worker);
-        t.submitFulfillment(id, sha256("real attempt"), "");
+        t.submitFulfillment(id, _h5, "");
         assertEq(t.pendingOf(id), 1);
     }
 
@@ -521,8 +559,9 @@ contract TaskTokenCoverageTest is Test {
         uint256 id = t.mintTask(owner, publisher, address(hashlock), TD, TH, "u", terms());
         vm.prank(funder);
         t.fundTask{value: 2 ether}(id, 2 ether);
+        bytes32 _h6 = sha256("garbage");
         vm.prank(rando);
-        uint256 sid = t.submitFulfillment(id, sha256("garbage"), "");
+        uint256 sid = t.submitFulfillment(id, _h6, "");
         vm.warp(block.timestamp + 30 days);
         vm.expectRevert(); // no judge to default: code decides, and code said no
         t.claimUnjudged(id, sid);
@@ -541,26 +580,30 @@ contract TaskTokenCoverageTest is Test {
         t.submitFulfillment(id, RES, "");
         assertEq(t.pendingOf(id), 1);
         assertEq(t.lockedEscrowOf(id), 1 ether);
+        bytes32 _h7 = sha256("d2");
         vm.prank(worker2);
         vm.expectRevert(); // a second delivery the vault could not pay for
-        t.submitFulfillment(id, sha256("d2"), "");
+        t.submitFulfillment(id, _h7, "");
 
         vm.prank(funder);
         t.fundTask{value: 1 ether}(id, 1 ether);
+        bytes32 _h8 = sha256("d2");
         vm.prank(worker2);
-        t.submitFulfillment(id, sha256("d2"), "");
+        t.submitFulfillment(id, _h8, "");
         assertEq(t.pendingOf(id), 2);
+        bytes32 _h9 = sha256("d3");
         vm.prank(rando);
         vm.expectRevert(); // both slots are now reserved by delivered work
-        t.submitFulfillment(id, sha256("d3"), "");
+        t.submitFulfillment(id, _h9, "");
 
         // an explicit rejection releases the reservation, on the record
         vm.prank(judge);
         t.rejectFulfillment(id, 2);
         assertEq(t.pendingOf(id), 1);
         assertEq(t.lockedEscrowOf(id), 1 ether);
+        bytes32 _h10 = sha256("d3");
         vm.prank(rando);
-        t.submitFulfillment(id, sha256("d3"), ""); // the freed slot is usable again
+        t.submitFulfillment(id, _h10, ""); // the freed slot is usable again
         assertEq(t.pendingOf(id), 2);
     }
 
@@ -570,7 +613,8 @@ contract TaskTokenCoverageTest is Test {
         vm.prank(publisher);
         t.freezeTask(id);
         vm.prank(publisher);
-        vm.expectRevert(); t.updateTaskWithDocument(id, "new", TH2);
+        vm.expectRevert();
+        t.updateTaskWithDocument(id, "new", TH2);
         vm.prank(publisher);
         t.setUpdateAuthority(id, rando);
         assertEq(t.updateAuthorityOf(id), rando);
@@ -584,19 +628,24 @@ contract TaskTokenCoverageTest is Test {
     function test_authority_gates() public {
         uint256 id = mintDefault();
         vm.prank(rando);
-        vm.expectRevert(); t.setTaskURI(id, "x");
+        vm.expectRevert();
+        t.setTaskURI(id, "x");
         vm.prank(rando);
-        vm.expectRevert(); t.setUpdateAuthority(id, rando);
+        vm.expectRevert();
+        t.setUpdateAuthority(id, rando);
         vm.prank(rando);
-        vm.expectRevert(); t.updateTaskWithDocument(id, "d", TH2);
+        vm.expectRevert();
+        t.updateTaskWithDocument(id, "d", TH2);
         vm.prank(rando);
-        vm.expectRevert(); t.publishTaskDocument(id, "d");
+        vm.expectRevert();
+        t.publishTaskDocument(id, "d");
         vm.prank(funder);
         t.fundTask{value: 2 ether}(id, 2 ether);
         vm.prank(worker);
         t.submitFulfillment(id, RES, "");
         vm.prank(rando);
-        vm.expectRevert(); t.rejectFulfillment(id, 1);
+        vm.expectRevert();
+        t.rejectFulfillment(id, 1);
     }
 
     // ---------------- operator approval confers nothing (approve() is covered elsewhere)
@@ -606,12 +655,18 @@ contract TaskTokenCoverageTest is Test {
         t.setApprovalForAll(rando, true);
         assertTrue(t.isApprovedForAll(owner, rando));
         vm.startPrank(rando);
-        vm.expectRevert(); t.updateTask(id, TD, TH2);
-        vm.expectRevert(); t.freezeTask(id);
-        vm.expectRevert(); t.cancelTask(id);
-        vm.expectRevert(); t.setTaskURI(id, "x");
-        vm.expectRevert(); t.setUpdateAuthority(id, rando);
-        vm.expectRevert(); t.setAcceptanceAuthority(id, rando);
+        vm.expectRevert();
+        t.updateTask(id, TD, TH2);
+        vm.expectRevert();
+        t.freezeTask(id);
+        vm.expectRevert();
+        t.cancelTask(id);
+        vm.expectRevert();
+        t.setTaskURI(id, "x");
+        vm.expectRevert();
+        t.setUpdateAuthority(id, rando);
+        vm.expectRevert();
+        t.setAcceptanceAuthority(id, rando);
         vm.stopPrank();
         // residual: cancel first, so the ONLY thing standing between the operator
         // and the money is the owner check itself
@@ -621,7 +676,8 @@ contract TaskTokenCoverageTest is Test {
         vm.prank(publisher);
         t.cancelTask(id);
         vm.prank(rando);
-        vm.expectRevert(); t.reclaimResidual(id);
+        vm.expectRevert();
+        t.reclaimResidual(id);
         uint256 b = owner.balance;
         vm.prank(owner);
         t.reclaimResidual(id);
@@ -645,8 +701,9 @@ contract TaskTokenCoverageTest is Test {
         // judgment migrates from an EOA to a verifier contract: the dead stays dead
         vm.prank(judge);
         t.setAcceptanceAuthority(id, address(hashlock));
+        bytes32 _h11 = sha256(answer);
         vm.prank(publisher);
-        hashlock.commitAnswer(address(t), id, sha256(answer));
+        hashlock.commitAnswer(address(t), id, _h11);
         vm.prank(rando);
         vm.expectRevert();
         t.settleFulfillment(id, sid, answer);
@@ -672,7 +729,8 @@ contract TaskTokenCoverageTest is Test {
         vm.prank(funder2);
         t.fundTask{value: 2 ether}(id, 2 ether);
         vm.prank(funder);
-        vm.expectRevert(); t.reclaimEscrow(id);
+        vm.expectRevert();
+        t.reclaimEscrow(id);
 
         vm.warp(block.timestamp + 300);
         uint256 b = funder.balance;
@@ -681,7 +739,8 @@ contract TaskTokenCoverageTest is Test {
         assertEq(funder.balance - b, 2 ether);
         assertFalse(t.isTenderCancelled(id)); // the expiry route, not the cancel route
         vm.prank(funder);
-        vm.expectRevert(); t.reclaimEscrow(id); // outstanding contribution is now zero
+        vm.expectRevert();
+        t.reclaimEscrow(id); // outstanding contribution is now zero
         assertEq(t.escrowBalanceOf(id), 2 ether); // the other funder is untouched
     }
 
@@ -692,8 +751,9 @@ contract TaskTokenCoverageTest is Test {
         vm.prank(funder);
         t.fundTask{value: 5 ether}(id, 5 ether);
         for (uint256 i = 0; i < 4; i++) {
+            bytes32 _h12 = sha256(abi.encodePacked("d", i));
             vm.prank(worker);
-            t.submitFulfillment(id, sha256(abi.encodePacked("d", i)), "");
+            t.submitFulfillment(id, _h12, "");
         }
         vm.startPrank(judge);
         for (uint256 i = 1; i <= 4; i++) t.acceptFulfillment(id, i);
@@ -705,9 +765,12 @@ contract TaskTokenCoverageTest is Test {
     function test_native_funding_amount_must_match() public {
         uint256 id = mintDefault();
         vm.startPrank(funder);
-        vm.expectRevert(); t.fundTask{value: 1 ether}(id, 2 ether);
-        vm.expectRevert(); t.fundTask{value: 2 ether}(id, 1 ether);
-        vm.expectRevert(); t.fundTask{value: 0}(id, 1 ether);
+        vm.expectRevert();
+        t.fundTask{value: 1 ether}(id, 2 ether);
+        vm.expectRevert();
+        t.fundTask{value: 2 ether}(id, 1 ether);
+        vm.expectRevert();
+        t.fundTask{value: 0}(id, 1 ether);
         vm.stopPrank();
     }
 
@@ -731,9 +794,12 @@ contract TaskTokenCoverageTest is Test {
 
     // ---------------- remaining views on a nonexistent token
     function test_nonexistent_views_remaining() public {
-        vm.expectRevert(); t.submissionOf(4242, 1);
-        vm.expectRevert(); t.taskDocument(4242);
-        vm.expectRevert(); t.tokenURI(4242);
+        vm.expectRevert();
+        t.submissionOf(4242, 1);
+        vm.expectRevert();
+        t.taskDocument(4242);
+        vm.expectRevert();
+        t.tokenURI(4242);
     }
 
     // ---------------- state changes precede the asset transfer; contracts can be paid
@@ -779,10 +845,14 @@ contract TaskTokenCoverageTest is Test {
                                 ITaskTender.TenderTerms(address(usd), 10e18, 5, 0, 0, 0, 0, 7 days));
         usd.mint(funder, 100e18);
         usd.mint(funder2, 100e18);
-        vm.prank(funder);  usd.approve(address(t), 100e18);
-        vm.prank(funder2); usd.approve(address(t), 100e18);
-        vm.prank(funder);  t.fundTask(id, 30e18);
-        vm.prank(funder2); t.fundTask(id, 10e18);
+        vm.prank(funder);
+        usd.approve(address(t), 100e18);
+        vm.prank(funder2);
+        usd.approve(address(t), 100e18);
+        vm.prank(funder);
+        t.fundTask(id, 30e18);
+        vm.prank(funder2);
+        t.fundTask(id, 10e18);
         usd.mint(t.vaultOf(id), 10e18);                     // anonymous ERC-20 gift
         assertEq(t.escrowBalanceOf(id), 50e18);
 
@@ -794,8 +864,10 @@ contract TaskTokenCoverageTest is Test {
 
         vm.prank(publisher);
         t.cancelTask(id);
-        vm.prank(funder);  t.reclaimEscrow(id);
-        vm.prank(funder2); t.reclaimEscrow(id);
+        vm.prank(funder);
+        t.reclaimEscrow(id);
+        vm.prank(funder2);
+        t.reclaimEscrow(id);
         // the gift absorbed the whole reward, so both funders are made whole
         assertEq(usd.balanceOf(funder), 100e18);
         assertEq(usd.balanceOf(funder2), 100e18);
@@ -810,14 +882,21 @@ contract TaskTokenCoverageTest is Test {
         uint256 id = t.mintTask(owner, publisher, judge, TD, TH, "u",
                                 ITaskTender.TenderTerms(address(0), 1, 1, 0, 0, 0, 0, 7 days));
         vm.deal(funder, 10); vm.deal(funder2, 10);
-        vm.prank(funder);  t.fundTask{value: 2}(id, 2);
-        vm.prank(funder2); t.fundTask{value: 1}(id, 1);
-        vm.prank(worker);  uint256 sid = t.submitFulfillment(id, RES, "");
-        vm.prank(judge);   t.acceptFulfillment(id, sid);
-        vm.prank(publisher); t.cancelTask(id);
+        vm.prank(funder);
+        t.fundTask{value: 2}(id, 2);
+        vm.prank(funder2);
+        t.fundTask{value: 1}(id, 1);
+        vm.prank(worker);
+        uint256 sid = t.submitFulfillment(id, RES, "");
+        vm.prank(judge);
+        t.acceptFulfillment(id, sid);
+        vm.prank(publisher);
+        t.cancelTask(id);
 
-        vm.prank(funder);  t.reclaimEscrow(id);      // 2 * 2 / 3 = 1
-        vm.prank(funder2); t.reclaimEscrow(id);      // 1 * 2 / 3 = 0
+        vm.prank(funder);
+        t.reclaimEscrow(id);      // 2 * 2 / 3 = 1
+        vm.prank(funder2);
+        t.reclaimEscrow(id);      // 1 * 2 / 3 = 0
         assertEq(t.escrowBalanceOf(id), 1);          // one wei of flooring dust
 
         uint256 before = owner.balance;
@@ -828,19 +907,22 @@ contract TaskTokenCoverageTest is Test {
     }
 
     // ---------------- funding closes once the pro-rata ratio has been fixed
+    // Cancellation trips the earlier "cancelled" guard, so the refund-snapshot guard is
+    // reachable only on the other refund route: a tender whose settleBy has passed.
     function test_no_funding_after_refunds_open() public {
+        uint64 settleBy = uint64(block.timestamp + 30 days);
         uint256 id = t.mintTask(owner, publisher, judge, TD, TH, "u",
-                                ITaskTender.TenderTerms(address(0), 1 ether, 1, 0, 0, 0, 0, 7 days));
-        vm.deal(funder, 10 ether); vm.deal(funder2, 10 ether);
+                                ITaskTender.TenderTerms(address(0), 1 ether, 2, 0, settleBy, 0, 0, 7 days));
         vm.prank(funder); t.fundTask{value: 3 ether}(id, 3 ether);
         vm.prank(worker); uint256 sid = t.submitFulfillment(id, RES, "");
-        vm.prank(judge);  t.acceptFulfillment(id, sid);
-        vm.prank(publisher); t.cancelTask(id);
-        vm.prank(funder); t.reclaimEscrow(id);       // snapshots pool 2 / denom 3
+        vm.prank(judge);  t.acceptFulfillment(id, sid);  // 1 ether spent, 2 remain
+
+        vm.warp(uint256(settleBy) + 1);                  // refunds unlock without cancelling
+        vm.prank(funder); t.reclaimEscrow(id);           // snapshots pool 2 / denom 3
 
         vm.prank(funder2);
-        vm.expectRevert("TaskToken: refunding");     // would be refunded against a
-        t.fundTask{value: 3 ether}(id, 3 ether);     // denominator taken before it existed
+        vm.expectRevert("TaskToken: refunding");         // would be refunded against a
+        t.fundTask{value: 3 ether}(id, 3 ether);         // denominator taken before it existed
     }
 
     // ---------------- an expensive receiver is credited AND can actually collect
@@ -848,9 +930,11 @@ contract TaskTokenCoverageTest is Test {
         HeavyFulfiller h = new HeavyFulfiller(address(t));
         uint256 id = mintDefault();
         vm.deal(funder, 10 ether);
-        vm.prank(funder); t.fundTask{value: 2 ether}(id, 2 ether);
+        vm.prank(funder);
+        t.fundTask{value: 2 ether}(id, 2 ether);
         uint256 sid = h.submit(id, RES);
-        vm.prank(judge); t.acceptFulfillment(id, sid);
+        vm.prank(judge);
+        t.acceptFulfillment(id, sid);
 
         assertEq(t.creditOf(id, address(h)), 1 ether);   // push was too expensive
         assertEq(uint8(t.submissionOf(id, sid).status), uint8(ITaskTender.SubmissionStatus.Accepted));
@@ -862,7 +946,10 @@ contract TaskTokenCoverageTest is Test {
     }
 
     // ---------------- a token that answers with a malformed word must not wedge anything
-    function test_malformed_erc20_return_credits_instead_of_reverting() public {
+    // 0x02 is not a clean bool, but it IS a non-zero word and the transfer really happened,
+    // so the lenient reading pays outright. The property under test is that reading the
+    // reply cannot throw: abi.decode(bool) on this word reverted, and wedged the submission.
+    function test_malformed_erc20_reply_does_not_revert() public {
         MalformedERC20 m = new MalformedERC20();
         uint256 id = t.mintTask(owner, publisher, judge, TD, TH, "u",
                                 ITaskTender.TenderTerms(address(m), 50e18, 1, 0, 0, 0, 0, 7 days));
@@ -875,7 +962,25 @@ contract TaskTokenCoverageTest is Test {
         t.acceptFulfillment(id, sid);                    // MUST NOT revert on the reply
         assertEq(uint8(t.submissionOf(id, sid).status), uint8(ITaskTender.SubmissionStatus.Accepted));
         assertEq(t.pendingOf(id), 0);                    // nothing wedged
-        assertEq(t.creditOf(id, worker), 50e18);         // the reply was unreadable
+        assertEq(m.balanceOf(worker), 50e18);            // paid outright: the word read as success
+        assertEq(t.creditOf(id, worker), 0);             // so no credit was needed
+    }
+
+    // ---------------- a reply too short to decode is a failed transfer: credited, never thrown
+    function test_short_erc20_reply_is_credited_not_thrown() public {
+        ShortReplyERC20 m = new ShortReplyERC20();
+        uint256 id = t.mintTask(owner, publisher, judge, TD, TH, "u",
+                                ITaskTender.TenderTerms(address(m), 50e18, 1, 0, 0, 0, 0, 7 days));
+        m.mint(funder, 500e18);
+        vm.prank(funder); m.approve(address(t), 500e18);
+        vm.prank(funder); t.fundTask(id, 100e18);
+        vm.prank(worker); uint256 sid = t.submitFulfillment(id, RES, "");
+
+        vm.prank(judge);
+        t.acceptFulfillment(id, sid);                    // MUST NOT revert
+        assertEq(uint8(t.submissionOf(id, sid).status), uint8(ITaskTender.SubmissionStatus.Accepted));
+        assertEq(t.pendingOf(id), 0);
+        assertEq(t.creditOf(id, worker), 50e18);         // the unreadable reply became a credit
     }
 
     // ---------------- a default claim must leave outstanding credit fully backed
@@ -889,11 +994,14 @@ contract TaskTokenCoverageTest is Test {
         uint256 id = t.mintTask(owner, publisher, judge, TD, TH, "u",
                                 ITaskTender.TenderTerms(address(0), 1 ether, 3, 0, 0, 0, 0, 7 days));
         vm.deal(funder, 10 ether);
-        vm.prank(funder); t.fundTask{value: 2 ether}(id, 2 ether);
+        vm.prank(funder);
+        t.fundTask{value: 2 ether}(id, 2 ether);
 
-        vm.prank(worker); uint256 sid1 = t.submitFulfillment(id, RES, "");
+        vm.prank(worker);
+        uint256 sid1 = t.submitFulfillment(id, RES, "");
         uint256 sid2 = h.submit(id, sha256("heavy"));
-        vm.prank(judge); t.acceptFulfillment(id, sid2);
+        vm.prank(judge);
+        t.acceptFulfillment(id, sid2);
 
         assertEq(t.creditOf(id, address(h)), 1 ether);
         assertEq(t.escrowBalanceOf(id), 2 ether);   // the raw balance still shows it all
