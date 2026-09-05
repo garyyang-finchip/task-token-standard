@@ -88,6 +88,25 @@ The contract enforces arithmetic (counting, solvency, deadlines, authority); the
 acceptance authority enforces semantics (eligibility, quality, team composition) per the
 fulfillment descriptor committed inside `taskHash`.
 
+## Fees and incentives — outside the kernel, at three enforceable points
+
+The kernel pays exactly one party (the fulfiller of record) and refunds exactly one
+class (attributed funders). Platform fees and judge compensation are composed outside
+it, in the slots it already has — and because the money is *inside* the token, each
+point is enforceable, not merely advisory:
+
+| attach at | how | enforced by |
+|---|---|---|
+| **funding entry** | a router calls `fundTask` with the net amount, keeps its fee, forwards refunds on its own ledger | it is the only path the platform offers |
+| **settlement exit** | fulfiller of record = a split contract (`examples/teams/FixedSplitter.sol`): provider gets its share, treasury the rest — 0%, 0.5%, 2.5%, whatever the split says | acceptance policy accepts only submissions from registered splitters |
+| **judgment slot** | the judging contract holds its own compensation escrow and pays jurors on their ruling | the demander funds the panel when appointing it |
+
+Fee rates live in those contracts, so governance changes them without ever touching the
+kernel. A machine verifier needs no incentive (it is code; the caller pays gas), and a
+single-address judge is usually the demander itself. Third-party committees are the one
+case that needs paying, and the escrow belongs with the committee. Companion escrows
+must **not** pay per rejection — that is a vault drain (see Security Considerations).
+
 ## Repository layout
 
 ```
