@@ -21,6 +21,11 @@ import {ITaskTender} from "../interfaces/ITaskTender.sol";
 ///         being told twice; and it holds its own deadline strictly inside `judgmentWindow`, so
 ///         a verdict that never arrives resolves the same way any other judge's silence does —
 ///         the fulfiller claims via `claimUnjudged` on the kernel, not through this contract.
+///         Precision, not overclaim (real gap named on t/29597#14, confirmed against the kernel
+///         source directly before writing this): under epoch pacing, "resolves" can mean
+///         "resolves once `claimUnjudged`'s own epoch-exhaustion check next clears," not
+///         instantly the moment `judgmentWindow` closes — this contract inherits that timing
+///         exactly as any other silent judge would, it does not add or remove delay of its own.
 ///
 /// @dev HONEST TWO-LAYER TRUST MODEL — stated explicitly rather than overclaimed, matching the
 ///      account's own REPRODUCED-vs-VERIFIED discipline (WYRIWE):
@@ -34,7 +39,9 @@ import {ITaskTender} from "../interfaces/ITaskTender.sol";
 ///            than the tender's `judgmentWindow` at deployment) is refused, never accepted late.
 ///            The fulfiller's protection is the kernel's own `claimUnjudged`, exactly as if no
 ///            acceptance authority existed at all — this contract failing open into silence
-///            costs it nothing extra to guard against, by design.
+///            costs it nothing extra to guard against, by design. Under epoch pacing that
+///            protection can itself be queued to the next epoch (the kernel's own documented
+///            behavior, not something this contract changes) — worth knowing, not a defect here.
 ///
 ///      LAYER 2, off-chain-verified today, on-chain-recomputable by anyone: the verdict's own
 ///      AUTHENTICITY — that invinoveritas actually signed this exact
