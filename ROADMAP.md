@@ -40,6 +40,44 @@ risk from each, and `acceptanceAuthorityOf` alone cannot tell them apart.
   attestation companion, where "what kind of ruling is this" is the native
   question rather than an afterthought bolted onto the kernel.
 
+### 3. Submission-time admission slot
+
+`submitFulfillment` is permissionless and records `msg.sender` as the fulfiller
+of record, so no companion can gate it: a wrapper becomes the fulfiller, and
+direct calls bypass it. On the judged path, eligibility is enforced only by
+rejection inside `judgmentWindow`, and the deadline default pays whatever was
+not rejected (credit: @JCXsivan, t/29597#25).
+
+- Candidate: an optional, ERC-165-discoverable admission policy consulted inside
+  `submitFulfillment` (and snapshotted on the submission, like `machineSettled`),
+  so that an ineligible submission is refused before it reserves a slot.
+- Why not now: it is a new slot and a new MUST in the kernel, changes the
+  `ITaskTender` identifier, and re-opens the observability boundary (the kernel
+  enforces what is observable; a policy contract is observable, which is the
+  argument for it). Decide deliberately in v2.
+- Today: eligibility that must hold without a live judge belongs on the machine
+  path (a verifier that refuses ineligible proofs; `releaseExpired` recycles the
+  slot). The draft now says so in Submission and Security Considerations.
+
+### 4. Partial reclaim while submissions are pending
+
+`reclaimEscrow` and `reclaimResidual` revert while `pendingOf > 0`, so one
+Pending submission locks the whole vault for up to `judgmentWindow`, which has
+no upper bound (credit: @JCXsivan, t/29597#25).
+
+- Candidate: let funders reclaim the unreserved part of the vault
+  (`escrowBalanceOf − lockedEscrowOf`) while submissions are pending, and/or a
+  recommended cap on `judgmentWindow`.
+- Why not now: the refund rule fixes the distributable pool and the denominator
+  at the first reclaim so that payout is order-independent, and a funder's
+  outstanding contribution is zeroed on reclaim. Reservations freed *after* a
+  partial reclaim (by rejection) would then have no funder left to return to and
+  would fall to the owner's residual. A running-ratio pull design can fix this
+  but it is a different refund arithmetic, not a patch.
+- Today: the draft states the lockup bound exactly (one window after the tender
+  closes, clearable by anyone since the claim is permissionless) and asks
+  wallets to display `judgmentWindow` as the lockup a contribution accepts.
+
 ## Companion track (no kernel change; separate drafts)
 
 ### Judgment-execution attestation companion (proposed by @babyblueviper1)
@@ -63,6 +101,6 @@ deserves its own draft.
   referencing `TaskRef = (chainId, taskContract, taskTokenId)`.
 - Atomic reveal-on-payment delivery profiles for judged tenders.
 - Streaming (per-second) settlement for faucet task tokens.
-- Admission-control hooks / submission bonds for hostile-submitter deployments
-  (the kernel deliberately only bounds slot-squatting; see Security
-  Considerations).
+- Submission bonds and allowlists for hostile-submitter deployments, enforced at
+  the acceptance decision or by a machine-path verifier (a submission-time slot
+  is v2 candidate 3 above: no companion can gate `submitFulfillment`).
