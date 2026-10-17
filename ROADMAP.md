@@ -58,6 +58,17 @@ not rejected (credit: @JCXsivan, t/29597#25).
 - Today: eligibility that must hold without a live judge belongs on the machine
   path (a verifier that refuses ineligible proofs; `releaseExpired` recycles the
   slot). The draft now says so in Submission and Security Considerations.
+- Motivation note (credit: @shentonyan, t/29597#27): admission checked at
+  submission rather than at verification means losing bidders cannot submit at
+  all, which saves them gas and keeps refused slots out of the pacing budget.
+- Test case (credit: @ted0x, t/29597#28): an award is granted at task version N
+  and the specification is updated to N+1 before submission. The kernel stamps
+  every submission with the binding version current at submission, so the
+  bidder's submission cites N+1. Under version-locking — the normative answer
+  for award profiles — admission refuses it: by updating, the publisher has
+  withdrawn the award and must re-award. A profile MAY offer freeze-at-award as
+  a stricter option, but freezing is an irreversible write by the update
+  authority and SHOULD NOT be a bidding flow's default.
 
 ### 4. Partial reclaim while submissions are pending
 
