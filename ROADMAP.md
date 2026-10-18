@@ -69,6 +69,15 @@ not rejected (credit: @JCXsivan, t/29597#25).
   withdrawn the award and must re-award. A profile MAY offer freeze-at-award as
   a stricter option, but freezing is an irreversible write by the update
   authority and SHOULD NOT be a bidding flow's default.
+- Refinement (credit: @shentonyan, t/29597#30): the locked version is the one
+  the tender *opened* against, not the one current at award time — bids were
+  priced against that document, so an update between opening and award means
+  the award would cover work nobody priced; the award inherits the tender's
+  lock. The lock binds `taskHash` (the TaskRoot, which covers the specification
+  and the eligibility profile), not `tdHash` (the document alone). Enforceable
+  today against current state only (`taskOf(tokenId).version` and `.taskHash`
+  equal the lock, and the submission cites the locked version); ruling on an
+  older version after an update needs candidate 5's binding-history view.
 
 ### 4. Partial reclaim while submissions are pending
 
@@ -88,6 +97,28 @@ no upper bound (credit: @JCXsivan, t/29597#25).
 - Today: the draft states the lockup bound exactly (one window after the tender
   closes, clearable by anyone since the claim is permissionless) and asks
   wallets to display `judgmentWindow` as the lockup a contribution accepts.
+
+### 5. Binding history view
+
+The kernel keeps only the current binding: `taskOf(tokenId)` returns today's
+`tdHash`, `taskHash` and `version`, and nothing returns the binding at an
+earlier version. Every submission cites the version it was made against, so a
+judge can know *which* version a delivery answered but cannot verify *what*
+that version was once the task has moved. PR #2's signed verdict authority hit
+this first (`TaskChanged`: no verdict can rule on a submission after an update,
+because the digest binds `tdHash` and the earlier value is gone), and the
+award-gated verifiers in t/29597#30 hit it the same way.
+
+- Candidate: a view `bindingAt(tokenId, version)` returning the historical
+  `(tdHash, taskHash)`, written by `_applyUpdate` alongside the version bump.
+- Why not now: it adds a storage write per update and a new view to
+  `ITaskToken`, which changes the interface identifier. It is cheap and does
+  not touch settlement, so it is a strong v2 candidate, but it is a kernel
+  change and belongs with the others.
+- Today: a verifier or authority rules only while `taskOf(tokenId).version`
+  equals the version the submission cites; after an update, "the task moved"
+  and "the ruling lapsed" are the same event, and the judged path's deadline
+  default (or, on the machine path, `releaseExpired`) resolves the submission.
 
 ## Companion track (no kernel change; separate drafts)
 
