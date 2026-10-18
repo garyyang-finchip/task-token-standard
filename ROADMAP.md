@@ -74,10 +74,21 @@ not rejected (credit: @JCXsivan, t/29597#25).
   priced against that document, so an update between opening and award means
   the award would cover work nobody priced; the award inherits the tender's
   lock. The lock binds `taskHash` (the TaskRoot, which covers the specification
-  and the eligibility profile), not `tdHash` (the document alone). Enforceable
-  today against current state only (`taskOf(tokenId).version` and `.taskHash`
-  equal the lock, and the submission cites the locked version); ruling on an
-  older version after an update needs candidate 5's binding-history view.
+  and the eligibility profile), not `tdHash` (the document alone), and it is
+  read from `taskOf(tokenId)` at opening, so the pair (version, taskHash) is
+  established on-chain at that block and versions are append-only thereafter.
+- Regression case (credit: @ted0x, t/29597#31): work is submitted at V1, the
+  task is updated to V2, then the V1 submission is settled. The adapter checks
+  only `submissionOf(...).taskVersion == lockedVersion` against its own anchor;
+  the current binding is not consulted, so the update does not invalidate work
+  already delivered. This follows the draft: the fulfiller cites the version it
+  fulfilled, and a verifier that must bind to the exact bytes answered carries
+  those anchors in its own commitment at configuration time (Security
+  Considerations, "A verifier sees the cited version"). The single check also
+  covers the other order — a submission made after the update cites V2 and
+  fails — so no current-state check is needed. Candidate 5 is for authorities
+  that hold no anchor of their own and read the binding at verification time
+  (PR #2's signed authority).
 
 ### 4. Partial reclaim while submissions are pending
 
@@ -115,10 +126,13 @@ award-gated verifiers in t/29597#30 hit it the same way.
   `ITaskToken`, which changes the interface identifier. It is cheap and does
   not touch settlement, so it is a strong v2 candidate, but it is a kernel
   change and belongs with the others.
-- Today: a verifier or authority rules only while `taskOf(tokenId).version`
-  equals the version the submission cites; after an update, "the task moved"
-  and "the ruling lapsed" are the same event, and the judged path's deadline
-  default (or, on the machine path, `releaseExpired`) resolves the submission.
+- Today: an authority that holds no anchor of its own rules only while
+  `taskOf(tokenId).version` equals the version the submission cites; after an
+  update, "the task moved" and "the ruling lapsed" are the same event, and the
+  judged path's deadline default (or, on the machine path, `releaseExpired`)
+  resolves the submission. An authority that locked (version, taskHash) at
+  configuration time needs no history: it settles against its own anchor
+  (candidate 3's regression case).
 
 ## Companion track (no kernel change; separate drafts)
 
