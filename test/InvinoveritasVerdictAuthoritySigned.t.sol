@@ -122,6 +122,14 @@ contract InvinoveritasVerdictAuthoritySignedTest is Test {
         t.fundTask{value: 10 ether}(id, 10 ether);
     }
 
+    /// Paced tender: at most `perEpoch` settlements per `epochLen` seconds (used to make the kernel refuse a second approval).
+    function _tenderPaced(address auth, uint64 jw, uint64 epochLen, uint64 perEpoch) internal returns (uint256 id) {
+        id = t.mintTask(owner, publisher, auth, sha256("TASK.md v1"), sha256("taskroot v1"), "u",
+            ITaskTender.TenderTerms(address(0), 1 ether, 0, 0, 0, epochLen, perEpoch, jw));
+        vm.prank(funder);
+        t.fundTask{value: 10 ether}(id, 10 ether);
+    }
+
     function _submit(uint256 id) internal returns (uint256 sid) {
         vm.prank(worker);
         sid = t.submitFulfillment(id, RES, "");
@@ -232,6 +240,32 @@ contract InvinoveritasVerdictAuthoritySignedTest is Test {
         bytes memory sig3 = _verdictSig(a, SK, tight, s3, true);
         vm.expectRevert(SVA.WindowNotInside.selector);
         a.relayVerdict(t, tight, s3, true, DREF, sig3);
+    }
+
+    // ---- downstream kernel revert: no stale `ruled` flag, no surviving VerdictRelayed, retry next epoch works
+    // (mirrors test_kernel_revert_rolls_back_flag_and_event in InvinoveritasVerdictAuthority.t.sol)
+    function test_kernel_revert_rolls_back_flag_and_event() public {
+        SVA a = _deploy();
+        uint256 id = _tenderPaced(address(a), JW, 1 days, 1);
+        uint256 s1 = _submit(id);
+        uint256 s2 = _submit(id);
+        bytes memory sig1 = _verdictSig(a, SK, id, s1, true);
+        vm.prank(anyone);
+        a.relayVerdict(t, id, s1, true, DREF, sig1); // uses this epoch's only completion
+
+        bytes memory sig2 = _verdictSig(a, SK, id, s2, true);
+        // The relay's whole frame reverts with the kernel (the revert is not caught), so the ruled flag and
+        // VerdictRelayed set before the kernel call cannot survive; the revert itself is the event assertion.
+        vm.prank(anyone);
+        (bool ok,) = address(a).call(abi.encodeCall(SVA.relayVerdict, (t, id, s2, true, DREF, sig2)));
+        assertFalse(ok, "kernel should refuse (epoch exhausted) and the relay must revert with it");
+        assertFalse(a.ruled(keccak256(abi.encode(address(t), id, s2))), "stale ruled flag");
+
+        vm.warp(block.timestamp + 1 days); // next epoch, still inside internalWindow
+        vm.prank(anyone);
+        a.relayVerdict(t, id, s2, true, DREF, sig2);
+        assertTrue(a.ruled(keccak256(abi.encode(address(t), id, s2))));
+        assertEq(uint8(t.submissionOf(id, s2).status), uint8(ITaskTender.SubmissionStatus.Accepted));
     }
 
     function test_constructor_refuses_unusable_key() public {

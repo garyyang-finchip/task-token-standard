@@ -14,9 +14,10 @@ pragma solidity ^0.8.24;
 ///         addresses compares points: R and the expected point share an address only if they are equal, up to a
 ///         keccak collision on 160 bits.
 ///         Inputs outside the ecrecover domain are rejected rather than handled: px must be below n (ecrecover's r),
-///         which excludes x-only keys in [n, p), a set of probability about 2⁻¹²⁸. A signature whose recomputed s·px
-///         or e·px is 0 mod n is also rejected (the precompile refuses s' = 0); either happens with negligible
-///         probability for an honest key and never makes an invalid signature verify.
+///         which excludes x-only keys in [n, p), a set of probability about 2⁻¹²⁸. A signature whose recomputed e·px
+///         is 0 mod n is rejected (the precompile refuses s' = 0). One whose recomputed s·px is 0 mod n is passed to
+///         ecrecover with h = 0, so the recovered point is −e·P and must still equal lift_x(rx). Either case has
+///         negligible probability for an honest key, and neither makes an invalid signature verify.
 library Bip340 {
     uint256 internal constant P = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F;
     uint256 internal constant N = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141;
