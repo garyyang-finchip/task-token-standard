@@ -89,6 +89,12 @@ not rejected (credit: @JCXsivan, t/29597#25).
   fails — so no current-state check is needed. Candidate 5 is for authorities
   that hold no anchor of their own and read the binding at verification time
   (PR #2's signed authority).
+- Executable coverage: [VersionLockedSettlement.t.sol](test/VersionLockedSettlement.t.sol)
+  tests both transaction orderings against the real kernel and stock hashlock
+  verifier, including unchanged-document updates, reuse of old root bytes at a
+  later version, winner eligibility and proof checks. The award is a test-only
+  fixture; this does not implement the future admission slot. See the
+  [test scope and reproduction notes](test/VERSION-LOCKING.md).
 
 ### 4. Partial reclaim while submissions are pending
 
