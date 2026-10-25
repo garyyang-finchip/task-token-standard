@@ -11,6 +11,25 @@ completion. It is the demand-side inverse of
 (ERC-8338): where a skill token wraps supplied value awaiting payment, a task token
 wraps committed payment awaiting supplied value.
 
+**What "reverse asset" means.** A task token is not an escrow. An escrow is a bilateral
+arrangement — two named parties, a condition, a release — with no owner, no price, and
+nothing to trade. A reverse asset is a bearer position on the demand side: it has an
+owner (who may be neither the publisher nor the judge), a price that fulfillers and
+secondary buyers quote against its vault, and a claim that is on *work*, not on money —
+the mirror of a skill token, whose holder's claim is on money for work already wrapped.
+Three consequences follow, and the kernel enforces all three: the money sits inside the
+token (the vault), the demander's commitment binds without its further cooperation
+(silence pays the fulfiller), and judgment is a power a buyer can inspect and price
+before acquiring the token (the third authority).
+
+**What "fulfillable token" means.** The two names answer two questions. *Reverse asset*
+says what the token is economically: the demand side, wrapped first. *Fulfillable token*
+says what kind of token it is mechanically: one whose value is drawn down by fulfillment,
+as an executable token's (ERC-8338) is drawn down by execution — the supply side is *run*,
+the demand side is *met*. Transfer moves a fulfillable token; only fulfillment draws on
+it, which is why every state-changing path in `ITaskTender` is a fulfillment path or a
+refund path, and none is a payment path.
+
 ```
 Supply side (ERC-8338):   T(f(v), $)      = ($, v)   the seller moves first
 Demand side (this work):  T(v, f⁻¹($))    = ($, v)   the buyer moves first
