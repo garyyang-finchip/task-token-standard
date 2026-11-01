@@ -95,6 +95,11 @@ not rejected (credit: @JCXsivan, t/29597#25).
   later version, winner eligibility and proof checks. The award is a test-only
   fixture; this does not implement the future admission slot. See the
   [test scope and reproduction notes](test/VERSION-LOCKING.md).
+- Design draft: [docs/v2-admission-slot.md](docs/v2-admission-slot.md) —
+  interface sketch (`ITaskAdmission`), slot semantics (set at mint, immutable),
+  kernel touch points, the measured EIP-170 constraint and the build that
+  resolves it, acceptance suite and open questions. Not part of
+  ethereum/ERCs#2005.
 
 ### 4. Partial reclaim while submissions are pending
 
