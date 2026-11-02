@@ -1,0 +1,128 @@
+No files changed, compilation skipped
+
+╭------------------+------------------+-------------------+--------------------+---------------------╮
+| Contract         | Runtime Size (B) | Initcode Size (B) | Runtime Margin (B) | Initcode Margin (B) |
++====================================================================================================+
+| HashlockVerifier | 1,261            | 1,288             | 23,315             | 47,864              |
+|------------------+------------------+-------------------+--------------------+---------------------|
+| JuryPanel        | 2,427            | 3,325             | 22,149             | 45,827              |
+|------------------+------------------+-------------------+--------------------+---------------------|
+| TaskToken        | 22,919           | 23,828            | 1,657              | 25,324              |
+|------------------+------------------+-------------------+--------------------+---------------------|
+| TaskVault        | 883              | 935               | 23,693             | 48,217              |
+╰------------------+------------------+-------------------+--------------------+---------------------╯
+
+warning[block-timestamp]: usage of `block.timestamp` in a comparison may be manipulated by validators
+   ╭▸ contracts/judgment/JuryPanel.sol:72:21
+   │
+72 │             require(block.timestamp <= c.firstVoteAt + voteWindow, "Jury: window elapsed");
+   │                     ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   │
+   ╰ help: https://book.getfoundry.sh/reference/forge/forge-lint#block-timestamp
+
+warning[block-timestamp]: usage of `block.timestamp` in a comparison may be manipulated by validators
+    ╭▸ contracts/judgment/JuryPanel.sol:105:17
+    │
+105 │         require(block.timestamp > c.firstVoteAt + voteWindow, "Jury: window still open");
+    │                 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    │
+    ╰ help: https://book.getfoundry.sh/reference/forge/forge-lint#block-timestamp
+
+warning[block-timestamp]: usage of `block.timestamp` in a comparison may be manipulated by validators
+    ╭▸ contracts/TaskToken.sol:405:36
+    │
+405 │         require(t.submitBy == 0 || block.timestamp <= t.submitBy, "TaskToken: past submitBy");
+    │                                    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    │
+    ╰ help: https://book.getfoundry.sh/reference/forge/forge-lint#block-timestamp
+
+warning[block-timestamp]: usage of `block.timestamp` in a comparison may be manipulated by validators
+    ╭▸ contracts/TaskToken.sol:407:36
+    │
+407 │         require(t.settleBy == 0 || block.timestamp <= t.settleBy, "TaskToken: past settleBy");
+    │                                    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    │
+    ╰ help: https://book.getfoundry.sh/reference/forge/forge-lint#block-timestamp
+
+warning[block-timestamp]: usage of `block.timestamp` in a comparison may be manipulated by validators
+    ╭▸ contracts/TaskToken.sol:446:36
+    │
+446 │         require(t.settleBy == 0 || block.timestamp <= t.settleBy, "TaskToken: past settleBy");
+    │                                    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    │
+    ╰ help: https://book.getfoundry.sh/reference/forge/forge-lint#block-timestamp
+
+warning[block-timestamp]: usage of `block.timestamp` in a comparison may be manipulated by validators
+    ╭▸ contracts/TaskToken.sol:559:17
+    │
+559 │         require(block.timestamp <= uint256(s.submittedAt) + _terms[tokenId].judgmentWindow,
+    │                 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    │
+    ╰ help: https://book.getfoundry.sh/reference/forge/forge-lint#block-timestamp
+
+warning[block-timestamp]: usage of `block.timestamp` in a comparison may be manipulated by validators
+    ╭▸ contracts/TaskToken.sol:582:17
+    │
+582 │         require(block.timestamp > deadline, "TaskToken: window open");
+    │                 ━━━━━━━━━━━━━━━━━━━━━━━━━━
+    │
+    ╰ help: https://book.getfoundry.sh/reference/forge/forge-lint#block-timestamp
+
+warning[block-timestamp]: usage of `block.timestamp` in a comparison may be manipulated by validators
+    ╭▸ contracts/TaskToken.sol:616:17
+    │
+616 │         require(block.timestamp > deadline, "TaskToken: window open");
+    │                 ━━━━━━━━━━━━━━━━━━━━━━━━━━
+    │
+    ╰ help: https://book.getfoundry.sh/reference/forge/forge-lint#block-timestamp
+
+warning[block-timestamp]: usage of `block.timestamp` in a comparison may be manipulated by validators
+    ╭▸ contracts/TaskToken.sol:699:56
+    │
+699 │             _cancelled[tokenId] || (t.settleBy != 0 && block.timestamp > t.settleBy),
+    │                                                        ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    │
+    ╰ help: https://book.getfoundry.sh/reference/forge/forge-lint#block-timestamp
+
+warning[unsafe-typecast]: typecasts that can truncate values should be checked
+    ╭▸ contracts/TaskToken.sol:596:77
+    │
+596 │         emit FulfillmentClaimedUnjudged(tokenId, submissionId, s.fulfiller, uint64(deadline));
+    │                                                                             ━━━━━━━━━━━━━━━━
+    │
+    ├ note: consider disabling this lint if you're certain the cast is safe
+    │
+    │       // casting to 'uint64' is safe because [explain why]
+    │       // forge-lint: disable-next-line(unsafe-typecast)
+    │
+    │
+    ╰ help: https://book.getfoundry.sh/reference/forge/forge-lint#unsafe-typecast
+
+warning[unsafe-typecast]: typecasts that can truncate values should be checked
+    ╭▸ contracts/TaskToken.sol:619:56
+    │
+619 │         emit SubmissionReleased(tokenId, submissionId, uint64(deadline));
+    │                                                        ━━━━━━━━━━━━━━━━
+    │
+    ├ note: consider disabling this lint if you're certain the cast is safe
+    │
+    │       // casting to 'uint64' is safe because [explain why]
+    │       // forge-lint: disable-next-line(unsafe-typecast)
+    │
+    │
+    ╰ help: https://book.getfoundry.sh/reference/forge/forge-lint#unsafe-typecast
+
+warning[unsafe-typecast]: typecasts that can truncate values should be checked
+    ╭▸ contracts/TaskToken.sol:811:47
+    │
+811 │             require(ok && ret.length >= 32 && bytes4(ret) == 0x150b7a02, "TaskToken: unsafe receiver");
+    │                                               ━━━━━━━━━━━
+    │
+    ├ note: consider disabling this lint if you're certain the cast is safe
+    │
+    │       // casting to 'bytes4' is safe because [explain why]
+    │       // forge-lint: disable-next-line(unsafe-typecast)
+    │
+    │
+    ╰ help: https://book.getfoundry.sh/reference/forge/forge-lint#unsafe-typecast
+
