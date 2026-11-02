@@ -40,6 +40,8 @@ interface ITaskTender {
         SubmissionStatus status;
     }
 
+    event AdmissionAuthoritySet(uint256 indexed tokenId, address indexed authority);
+
     event TenderFunded(uint256 indexed tokenId, address indexed funder,
                        uint256 amount, uint256 escrowBalance);
     event TenderCancelled(uint256 indexed tokenId);
@@ -75,6 +77,8 @@ interface ITaskTender {
     function vaultOf(uint256 tokenId) external view returns (address);
     function tenderTermsOf(uint256 tokenId) external view returns (TenderTerms memory);
     function acceptanceAuthorityOf(uint256 tokenId) external view returns (address);
+    /// @notice Immutable submission policy; zero means open submission. Prototype v2 interface.
+    function admissionAuthorityOf(uint256 tokenId) external view returns (address);
     /// @notice MUST equal the vault's live balance in the tender asset.
     function escrowBalanceOf(uint256 tokenId) external view returns (uint256);
     /// @notice Submissions currently Pending: each reserves a slot and a reward.

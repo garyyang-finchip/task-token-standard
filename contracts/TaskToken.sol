@@ -3,6 +3,7 @@ pragma solidity ^0.8.24;
 
 import {ITaskToken} from "./interfaces/ITaskToken.sol";
 import {ITaskTender} from "./interfaces/ITaskTender.sol";
+import {ITaskAdmission} from "./interfaces/ITaskAdmission.sol";
 import {ITaskVerifier} from "./interfaces/ITaskVerifier.sol";
 import {IOnchainTaskDocument} from "./interfaces/IOnchainTaskDocument.sol";
 import {TaskVault} from "./TaskVault.sol";
@@ -41,6 +42,9 @@ contract TaskToken is ITaskToken, ITaskTender, IOnchainTaskDocument {
     mapping(uint256 => TenderTerms)  private _terms;               // immutable after mint
     mapping(uint256 => TaskVault)    private _vault;               // per-token locked bounty vault
     mapping(uint256 => address)      private _acceptanceAuthority; // judgment right
+    mapping(uint256 => address)      private _admissionAuthority; // immutable mint-time policy
+    // Prototype choice for the design draft's open gas-budget question.
+    uint256 public constant ADMISSION_GAS = 100_000;
     mapping(uint256 => bool)         private _cancelled;
     mapping(uint256 => uint64)       private _completions;
     mapping(uint256 => mapping(uint64 => uint64)) private _epochCompletions;
@@ -129,6 +133,27 @@ contract TaskToken is ITaskToken, ITaskTender, IOnchainTaskDocument {
         string calldata taskURI_,
         TenderTerms calldata terms
     ) external returns (uint256 tokenId) {
+        return _mintTask(to, updateAuthority_, acceptanceAuthority_, tdHash, taskHash, taskURI_, terms, address(0));
+    }
+
+    /// @notice v2 prototype: the original mint overload remains an open-submission convenience.
+    function mintTask(
+        address to, address updateAuthority_, address acceptanceAuthority_,
+        bytes32 tdHash, bytes32 taskHash, string calldata taskURI_,
+        TenderTerms calldata terms, address admissionAuthority_
+    ) external returns (uint256 tokenId) {
+        return _mintTask(to, updateAuthority_, acceptanceAuthority_, tdHash, taskHash, taskURI_, terms, admissionAuthority_);
+    }
+
+    function _mintTask(
+        address to, address updateAuthority_, address acceptanceAuthority_,
+        bytes32 tdHash, bytes32 taskHash, string calldata taskURI_,
+        TenderTerms calldata terms, address admissionAuthority_
+    ) private returns (uint256 tokenId) {
+        require(admissionAuthority_ == address(0) || (
+            admissionAuthority_.code.length != 0 && _returnsTrue(admissionAuthority_, 30_000,
+                abi.encodeCall(IERC165Probe.supportsInterface, (type(ITaskAdmission).interfaceId)))
+        ), "TaskToken: invalid admission authority");
         require(to != address(0), "TaskToken: mint to zero");
         require(updateAuthority_ != address(0), "TaskToken: zero publisher");
         require(acceptanceAuthority_ != address(0), "TaskToken: zero judge");
@@ -158,12 +183,14 @@ contract TaskToken is ITaskToken, ITaskTender, IOnchainTaskDocument {
         _taskURI[tokenId] = taskURI_;
         _updateAuthority[tokenId] = updateAuthority_;
         _acceptanceAuthority[tokenId] = acceptanceAuthority_;
+        _admissionAuthority[tokenId] = admissionAuthority_;
         _terms[tokenId] = terms;
         _vault[tokenId] = new TaskVault(); // the money lives IN the token
 
         emit TaskUpdated(tokenId, tdHash, taskHash, 1);
         emit TaskUpdateAuthorityChanged(tokenId, address(0), updateAuthority_);
         emit AcceptanceAuthorityChanged(tokenId, address(0), acceptanceAuthority_);
+        emit AdmissionAuthoritySet(tokenId, admissionAuthority_);
     }
 
     // =============================================================== ITaskToken views
@@ -250,6 +277,10 @@ contract TaskToken is ITaskToken, ITaskTender, IOnchainTaskDocument {
 
     function acceptanceAuthorityOf(uint256 tokenId) external view exists(tokenId) returns (address) {
         return _acceptanceAuthority[tokenId];
+    }
+
+    function admissionAuthorityOf(uint256 tokenId) external view exists(tokenId) returns (address) {
+        return _admissionAuthority[tokenId];
     }
 
     /// Escrow IS the vault's live balance: solvency is a fact, not a ledger claim.
@@ -363,8 +394,7 @@ contract TaskToken is ITaskToken, ITaskTender, IOnchainTaskDocument {
     }
 
     // =============================================================== submission
-    /// Permissionless at this layer: eligibility narrowing belongs to acceptance
-    /// and companion bidding standards. Records the cited binding version so any
+    /// A nonzero mint-time admission policy narrows submission before reservation. Records the cited binding version so any
     /// observer can reconstruct exactly which specification a completion fulfilled.
     function submitFulfillment(uint256 tokenId, bytes32 resultHash, string calldata resultURI)
         external exists(tokenId) returns (uint256 submissionId)
@@ -375,6 +405,12 @@ contract TaskToken is ITaskToken, ITaskTender, IOnchainTaskDocument {
         require(t.submitBy == 0 || block.timestamp <= t.submitBy, "TaskToken: past submitBy");
         // never accept work into a tender that can no longer settle it
         require(t.settleBy == 0 || block.timestamp <= t.settleBy, "TaskToken: past settleBy");
+        address adm = _admissionAuthority[tokenId];
+        if (adm != address(0)) {
+            require(_returnsTrue(adm, ADMISSION_GAS, abi.encodeCall(ITaskAdmission.admit,
+                (address(this), tokenId, msg.sender, resultHash, _binding[tokenId].version))),
+                "TaskToken: not admitted");
+        }
         // a slot is reserved from the moment work is delivered, not from acceptance:
         // otherwise a judge could exhaust the bound with other completions and starve
         // a submission it is sitting on.
@@ -486,6 +522,17 @@ contract TaskToken is ITaskToken, ITaskTender, IOnchainTaskDocument {
             "TaskToken: verification failed"
         );
         _settleEffects(tokenId, submissionId, s, t);
+    }
+
+    /// @dev STATICCALL prevents writes throughout the policy's call tree. Copy at most one
+    /// word, so oversized/malformed returns cannot consume an unbounded caller memory budget.
+    function _returnsTrue(address target, uint256 gasLimit, bytes memory input) private view returns (bool yes) {
+        assembly ("memory-safe") {
+            let output := mload(0x40)
+            mstore(output, 0)
+            let ok := staticcall(gasLimit, target, add(input, 32), mload(input), output, 32)
+            yes := and(and(ok, eq(returndatasize(), 32)), eq(mload(output), 1))
+        }
     }
 
     function _declaresVerifier(address auth) private view returns (bool) {

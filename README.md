@@ -1,3 +1,5 @@
+> **Experimental v2 branch.** This prototype implements the submission-time admission design in `docs/v2-admission-slot.md`; it is not the filed ERC-8414 kernel or the Sepolia deployment. See [implementation and results](docs/v2-admission-prototype.md).
+
 # Task Token as a Reverse Asset — Reference Implementation
 
 Reference implementation, deterministic toolchain, and test vectors for the ERC draft

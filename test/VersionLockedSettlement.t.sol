@@ -5,12 +5,12 @@ import {Test} from "forge-std/Test.sol";
 import {TaskToken} from "../contracts/TaskToken.sol";
 import {ITaskToken} from "../contracts/interfaces/ITaskToken.sol";
 import {ITaskTender} from "../contracts/interfaces/ITaskTender.sol";
-import {ITaskVerifier} from "../contracts/interfaces/ITaskVerifier.sol";
+import {ITaskAdmission} from "../contracts/interfaces/ITaskAdmission.sol";
 import {HashlockVerifier} from "../contracts/verifiers/HashlockVerifier.sol";
 
-/// @dev Test-only award gate: fixes one winner to isolate version-locking from bidding.
-/// Not the sealed-bid companion, a submission-time admission slot, or a production adapter.
-contract VersionLockedAwardFixture is ITaskVerifier {
+/// @dev Real submission policy with a test-only fixed award, isolating the v2 slot from bidding.
+/// The award is publisher-selected here, not produced by the sealed-bid companion.
+contract VersionLockedAwardFixture is ITaskAdmission {
     TaskToken private immutable task;
     HashlockVerifier private immutable inner;
     mapping(uint256 => ITaskToken.TaskBinding) public anchorOf;
@@ -30,23 +30,18 @@ contract VersionLockedAwardFixture is ITaskVerifier {
     }
 
     function supportsInterface(bytes4 id) external pure returns (bool) {
-        return id == 0x01ffc9a7 || id == type(ITaskVerifier).interfaceId;
+        return id == 0x01ffc9a7 || id == type(ITaskAdmission).interfaceId;
     }
 
-    function verifyFulfillment(
-        address taskContract,
-        uint256 tokenId,
-        uint256 submissionId,
-        address fulfiller,
-        bytes32 resultHash,
-        bytes calldata proof
-    ) external view returns (bool) {
+    function admit(address taskContract, uint256 tokenId, address submitter, bytes32, uint64 taskVersion)
+        external view returns (bool)
+    {
         if (msg.sender != address(task) || taskContract != address(task)) return false;
-        if (fulfiller != winnerOf[tokenId]) return false;
-        // The current binding is deliberately not consulted at settlement time.
-        if (task.submissionOf(tokenId, submissionId).taskVersion != anchorOf[tokenId].version) return false;
-        return inner.verifyFulfillment(taskContract, tokenId, submissionId, fulfiller, resultHash, proof);
+        if (submitter != winnerOf[tokenId] || taskVersion != anchorOf[tokenId].version) return false;
+        ITaskToken.TaskBinding memory live = task.taskOf(tokenId);
+        return live.version == taskVersion && live.taskHash == anchorOf[tokenId].taskHash;
     }
+
 }
 
 /// @notice Regressions for t/29597#31/#33 and ROADMAP candidate 3. Uses the real
@@ -72,11 +67,12 @@ contract VersionLockedSettlementTest is Test {
         tokenId = task.mintTask(
             PUBLISHER,
             PUBLISHER,
-            address(gate),
+            address(inner),
             DOCUMENT,
             ROOT_V1,
             "ipfs://v1",
-            ITaskTender.TenderTerms(address(0), REWARD, 3, 0, 0, 0, 0, 7 days)
+            ITaskTender.TenderTerms(address(0), REWARD, 3, 0, 0, 0, 0, 7 days),
+            address(gate)
         );
         vm.startPrank(PUBLISHER);
         gate.lock(tokenId, WINNER);
@@ -146,43 +142,53 @@ contract VersionLockedSettlementTest is Test {
         assertEq(WINNER.balance, REWARD);
     }
 
+    function assertSubmissionRefused(address who) private {
+        uint256 count = task.submissionCountOf(tokenId);
+        uint64 pending = task.pendingOf(tokenId);
+        uint256 locked = task.lockedEscrowOf(tokenId);
+        uint256 escrow = task.escrowBalanceOf(tokenId);
+        bytes32 result = sha256(abi.encodePacked(bytes("answer"), who));
+        vm.prank(who);
+        vm.expectRevert(bytes("TaskToken: not admitted"));
+        task.submitFulfillment(tokenId, result, "ipfs://result");
+        assertEq(task.submissionCountOf(tokenId), count);
+        assertEq(task.pendingOf(tokenId), pending);
+        assertEq(task.lockedEscrowOf(tokenId), locked);
+        assertEq(task.escrowBalanceOf(tokenId), escrow);
+    }
+
     function test_deliveryAfterUpdateCannotUseV1Award() public {
         update(ROOT_V2);
-        uint256 delivery = submit(WINNER);
-        assertEq(task.submissionOf(tokenId, delivery).taskVersion, 2);
-        assertVerificationFailsUnchanged(delivery, "answer");
-        assertEq(uint8(task.submissionOf(tokenId, delivery).status), uint8(ITaskTender.SubmissionStatus.Pending));
+        assertSubmissionRefused(WINNER);
     }
 
     function test_settlingV1DoesNotMakeV2Payable() public {
         uint256 oldDelivery = submit(WINNER);
         update(ROOT_V2);
-        uint256 newDelivery = submit(WINNER);
+        assertSubmissionRefused(WINNER);
         settle(oldDelivery, "answer");
-        assertVerificationFailsUnchanged(newDelivery, "answer");
+        assertSubmissionRefused(WINNER);
         assertEq(WINNER.balance, REWARD);
-        assertEq(task.pendingOf(tokenId), 1);
-        assertEq(task.lockedEscrowOf(tokenId), REWARD);
+        assertEq(task.pendingOf(tokenId), 0);
         assertEq(task.completionsOf(tokenId), 1);
     }
 
     function test_reusingOldRootDoesNotRestoreOldVersionAward() public {
         uint256 oldDelivery = submit(WINNER);
         update(ROOT_V2);
-        update(ROOT_V1); // Identical root bytes, but the append-only version is now 3.
-        uint256 newDelivery = submit(WINNER);
+        update(ROOT_V1);
         assertEq(task.taskOf(tokenId).version, 3);
-        assertEq(task.taskOf(tokenId).taskHash, ROOT_V1);
-        assertVerificationFailsUnchanged(newDelivery, "answer");
+        assertSubmissionRefused(WINNER);
         settle(oldDelivery, "answer");
         assertEq(WINNER.balance, REWARD);
         assertEq(task.submissionOf(tokenId, oldDelivery).taskVersion, 1);
     }
 
     function test_historicalVersionDoesNotBypassWinnerCheck() public {
-        uint256 delivery = submit(LOSER);
+        assertSubmissionRefused(LOSER);
+        uint256 delivery = submit(WINNER);
         update(ROOT_V2);
-        assertVerificationFailsUnchanged(delivery, "answer");
+        settle(delivery, "answer");
         assertEq(LOSER.balance, 0);
     }
 
